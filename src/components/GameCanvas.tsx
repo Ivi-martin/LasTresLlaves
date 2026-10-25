@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   EquippedCosmetics,
   GameSettings,
@@ -22,15 +22,14 @@ interface GameCanvasProps {
   isPaused: boolean;
 }
 
-// Balance and Weapon definitions
 const BASE_CFG = {
   mapW: 4000,
   mapH: 3000,
-  pSpeed: 265,
+  pSpeed: 260,
   pHp: 100,
   pFire: 0.15,
   pBulletSpd: 740,
-  pDmg: 22,
+  pDmg: 20,
   inv: 0.8,
   chaser: { hp: 40, spd: 125, dmg: 10, r: 16 },
   shooter: { hp: 30, spd: 95, dmg: 8, r: 16, fire: 1.7, bspd: 300 },
@@ -72,7 +71,7 @@ const LV_DATA = [
   },
   {
     name: 'Fase 2: La Cripta Sombría',
-    tip: 'Cripta: oscuridad total. Sigue el brillo dorado y esquiva los murciélagos.',
+    tip: 'Cripta: oscuridad total. Sigue el brillo dorado.',
     boss: 'ESPECTRO DEL ABISMO',
     W: 3000,
     H: 2400,
@@ -98,7 +97,7 @@ const LV_DATA = [
   },
   {
     name: 'Fase 3: Fortaleza de Magma',
-    tip: 'Fortaleza: la lava quema. Destruye torretas y vence al Coloso.',
+    tip: 'Fortaleza: la lava quema. Evita torretas y brutos.',
     boss: 'COLOSO DE MAGMA',
     W: 3600,
     H: 2800,
@@ -124,7 +123,7 @@ const LV_DATA = [
   },
 ];
 
-const BOMB_CFG = { r: 130, bossDmg: 40, pick: 34, onMap: 2 };
+const BOMB_CFG = { r: 130, bossDmg: 35, pick: 34, onMap: 2 };
 const BOSS_COLORS = [
   ['#6a2a9a', '#c2183a'],
   ['#7be0ff', '#b06bff'],
@@ -148,6 +147,31 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   isPaused,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Synchronize props to refs so the game loop never triggers React re-renders
+  const propsRef = useRef({
+    equipped,
+    settings,
+    stats,
+    onGameOver,
+    onVictory,
+    onPause,
+    onStatsUpdate,
+    isPaused,
+  });
+
+  useEffect(() => {
+    propsRef.current = {
+      equipped,
+      settings,
+      stats,
+      onGameOver,
+      onVictory,
+      onPause,
+      onStatsUpdate,
+      isPaused,
+    };
+  }, [equipped, settings, stats, onGameOver, onVictory, onPause, onStatsUpdate, isPaused]);
 
   // Runtime Game State
   const gameStateRef = useRef<{
@@ -203,9 +227,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     keysPressed: Record<string, boolean>;
     mouse: { x: number; y: number };
     mouseDown: boolean;
-    touchActive: boolean;
     touchMove: { active: boolean; startX: number; startY: number; currX: number; currY: number };
-    touchAim: { active: boolean; dirX: number; dirY: number };
     isShooting: boolean;
   }>({
     mode: 'world',
@@ -247,683 +269,760 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     keysPressed: {},
     mouse: { x: 600, y: 500 },
     mouseDown: false,
-    touchActive: false,
     touchMove: { active: false, startX: 0, startY: 0, currX: 0, currY: 0 },
-    touchAim: { active: false, dirX: 0, dirY: 0 },
     isShooting: false,
   });
 
-  // UI state for reactive HUD buttons
-  const [hudData, setHudData] = useState({
-    hp: 100,
-    maxHp: 100,
-    level: 1,
-    phase: 1,
-    keys: 0,
-    bombs: 0,
-    weapon: 'Pistola',
-    weaponCount: 1,
-    nearHouse: false,
-    fps: 60,
-    score: 0,
-  });
-
-  const R = (a: number, b: number) => a + Math.random() * (b - a);
-  const D = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
-
-  // Weapon definitions according to selected cosmetic
-  const getWeaponsConfig = useCallback((): Record<WeaponType, WeaponDef> => {
-    const weaponSkin = DEFAULT_WEAPON_SKINS.find((w) => w.id === equipped.weaponSkinId) || DEFAULT_WEAPON_SKINS[0];
-    const dmgBonus = 1 + stats.upgrades.damage * 0.05;
-    const fireCooldownBonus = Math.max(0.08, 0.15 * (1 - stats.upgrades.fireRate * 0.04));
-
-    return {
-      pistol: {
-        name: 'Pistola',
-        fire: fireCooldownBonus,
-        spd: 740,
-        dmg: 22 * dmgBonus,
-        n: 1,
-        spread: 0,
-        life: 1.1,
-        color: weaponSkin.bulletColor,
-        r: 5,
-      },
-      shotgun: {
-        name: 'Escopeta',
-        fire: fireCooldownBonus,
-        spd: 740,
-        dmg: 22 * dmgBonus,
-        n: 2,
-        spread: (20 * Math.PI) / 180,
-        life: 1.1,
-        color: weaponSkin.id === 'default_metal' ? '#ffb020' : weaponSkin.bulletColor,
-        r: 5,
-      },
-    };
-  }, [equipped.weaponSkinId, stats.upgrades]);
-
-  const say = useCallback((s: string, d: number = 3) => {
-    const G = gameStateRef.current;
-    G.txt = s;
-    G.txtT = d;
-  }, []);
-
-  const addFloatText = useCallback((x: number, y: number, text: string, color: string) => {
-    gameStateRef.current.floatingTexts.push({
-      x,
-      y,
-      text,
-      color,
-      life: 1.2,
-    });
-  }, []);
-
-  const burstParticles = useCallback((x: number, y: number, col: string, n: number = 8) => {
-    const G = gameStateRef.current;
-    const maxParticles = settings.quality === 'low' ? 6 : settings.quality === 'medium' ? 12 : n;
-    for (let i = 0; i < maxParticles; i++) {
-      const a = R(0, 6.28);
-      const s = R(60, 240);
-      G.parts.push({
-        x,
-        y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s,
-        l: R(0.3, 0.7),
-        c: col,
-      });
-    }
-  }, [settings.quality]);
-
-  const inObs = (x: number, y: number, m: number) => {
-    const G = gameStateRef.current;
-    return G.obs.some((k) => x > k.x - m && x < k.x + k.w + m && y > k.y - m && y < k.y + k.h + m);
-  };
-
-  const spawnBomb = useCallback(() => {
-    const G = gameStateRef.current;
-    if (!G.P) return;
-    for (let i = 0; i < 200; i++) {
-      const x = R(80, G.W - 80);
-      const y = R(80, G.H - 80);
-      const q = { x, y };
-      if (
-        D(q, G.P) > (G.mode === 'world' ? 600 : 250) &&
-        !inObs(x, y, 40) &&
-        !G.haz.some((z) => D(z, q) < z.r + 30) &&
-        (G.mode === 'world' || y > 300) &&
-        !G.bombs.some((b) => D(b, q) < 400)
-      ) {
-        G.bombs.push(q);
-        return;
-      }
-    }
-  }, []);
-
-  const fillBombs = useCallback(() => {
-    const G = gameStateRef.current;
-    while (G.bombs.length < BOMB_CFG.onMap) {
-      const n = G.bombs.length;
-      spawnBomb();
-      if (G.bombs.length === n) break;
-    }
-  }, [spawnBomb]);
-
-  const explode = useCallback(() => {
-    const G = gameStateRef.current;
-    if (!G.P || G.nBombs <= 0 || G.winT > 0 || isPaused) return;
-    G.nBombs--;
-    sound.bomb();
-
-    // Kill nearby enemies
-    for (const e of G.en) {
-      if (e.hp > 0 && D(e, G.P) < BOMB_CFG.r + e.r) {
-        e.hp = 0;
-        killEnemy(e);
-      }
-    }
-    // Clean enemy bullets
-    for (const b of G.ebul) {
-      if (D(b, G.P) < BOMB_CFG.r) b.l = 0;
-    }
-    // Damage boss
-    if (G.boss && D(G.boss, G.P) < BOMB_CFG.r + G.boss.r) {
-      G.boss.hp -= BOMB_CFG.bossDmg;
-      burstParticles(G.boss.x, G.boss.y, '#ffd23f', 24);
-      addFloatText(G.boss.x, G.boss.y - 30, `-${BOMB_CFG.bossDmg}`, '#ff4444');
-    }
-
-    G.blasts.push({ x: G.P.x, y: G.P.y, l: 0.5 });
-    burstParticles(G.P.x, G.P.y, '#ff9a3d', 40);
-    G.shake = settings.quality === 'low' ? 6 : 22;
-    say(`¡BOMBA DETONADA! Te quedan ${G.nBombs}`, 2);
-  }, [burstParticles, isPaused, say, settings.quality, addFloatText]);
-
-  const cycleWeapon = useCallback(() => {
-    const G = gameStateRef.current;
-    if (!G.P || !G.P.weapons || G.P.weapons.length < 2) return;
-    G.P.wep = (G.P.wep + 1) % G.P.weapons.length;
-    G.P.cd = Math.max(G.P.cd, 0.15);
-    const wConfig = getWeaponsConfig();
-    const currName = wConfig[G.P.weapons[G.P.wep]].name.toUpperCase();
-    say(`Arma seleccionada: ${currName}`, 1.5);
-    sound.click();
-  }, [getWeaponsConfig, say]);
-
-  const spawnEnemy = useCallback((type: string, x: number, y: number) => {
-    const G = gameStateRef.current;
-    const c = (BASE_CFG as any)[type];
-    const sc = 1 + 0.12 * (G.level - 1) + 0.12 * G.got;
-    G.en.push({
-      type,
-      x,
-      y,
-      r: c.r,
-      hp: c.hp * sc,
-      max: c.hp * sc,
-      cd: R(0.5, 1.5),
-      dir: Math.random() < 0.5 ? 1 : -1,
-    });
-  }, []);
-
-  const killEnemy = useCallback((e: any) => {
-    const G = gameStateRef.current;
-    sound.kill();
-    G.kills++;
-    burstParticles(e.x, e.y, e.type === 'chaser' ? '#ff5a4d' : '#c56bff', 14);
-
-    // Score & XP & Coins calculation
-    const xpBase = e.type === 'brute' ? 45 : e.type === 'turret' ? 35 : e.type === 'shooter' ? 25 : 18;
-    const goldBase = e.type === 'brute' ? 20 : e.type === 'turret' ? 15 : 10;
-    const scoreVal = xpBase * 10;
-    G.score += scoreVal;
-
-    // Award XP and Gold to player profile
-    const result = StorageManager.addXpAndGold(xpBase, goldBase);
-    onStatsUpdate(result.newStats);
-
-    addFloatText(e.x, e.y - 12, `+${xpBase} XP`, '#38bdf8');
-    if (Math.random() < 0.6) {
-      addFloatText(e.x, e.y + 12, `+${goldBase} Oro`, '#ffd23f');
-    }
-
-    if (result.leveledUp) {
-      sound.levelUp();
-      say(`¡SUBISTE AL NIVEL ${result.newLevel}! Atributos Mejorados`, 4);
-      addFloatText(G.P?.x || e.x, (G.P?.y || e.y) - 50, '¡NIVEL AUMENTADO!', '#4ade80');
-      notificationService.emitToast('¡Subiste de Nivel!', `Has alcanzado el Nivel ${result.newLevel}. Nuevos accesorios desbloqueados.`, 'level');
-    }
-
-    // Weekly challenges
-    StorageManager.updateChallengeProgress('kills', 1);
-    if (G.P && G.P.weapons[G.P.wep] === 'shotgun') {
-      StorageManager.updateChallengeProgress('shotgun', 1);
-    }
-
-    // Health drop calculation with player upgrades
-    const dropChance = BASE_CFG.dropHeal + stats.upgrades.dropRate * 0.03;
-    if (Math.random() < dropChance) {
-      G.drops.push({ x: e.x, y: e.y });
-    }
-  }, [addFloatText, burstParticles, onStatsUpdate, say, stats.upgrades.dropRate]);
-
-  const enemyShoot = (x: number, y: number, a: number, s: number, d: number) => {
-    const G = gameStateRef.current;
-    G.ebul.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, dmg: d, l: 3 });
-  };
-
-  const hurtPlayer = useCallback((dmg: number) => {
-    const G = gameStateRef.current;
-    if (!G.P || G.P.inv > 0 || isPaused) return;
-    G.P.hp -= dmg;
-    G.P.inv = BASE_CFG.inv;
-    G.shake = settings.quality === 'low' ? 4 : 10;
-    G.flash = 0.35;
-    sound.hurt();
-    addFloatText(G.P.x, G.P.y - 25, `-${Math.ceil(dmg)}`, '#ef4444');
-
-    if (G.P.hp <= 0) {
-      G.P.hp = 0;
-      sound.bossDie();
-      StorageManager.recordScore(G.score, Math.floor(G.timeSeconds), G.level);
-      onGameOver(G.score, G.level, G.kills);
-    }
-  }, [addFloatText, isPaused, onGameOver, settings.quality]);
-
-  const firePlayerWeapon = useCallback(() => {
-    const G = gameStateRef.current;
-    if (!G.P || G.winT > 0 || isPaused) return;
-
-    const wConfig = getWeaponsConfig();
-    const w = wConfig[G.P.weapons[G.P.wep]] || wConfig.pistol;
-    G.P.cd = w.fire;
-
-    for (let i = 0; i < w.n; i++) {
-      const a = G.P.ang + (w.n > 1 ? (i - (w.n - 1) / 2) * w.spread : 0);
-      G.bullets.push({
-        x: G.P.x + Math.cos(a) * 22,
-        y: G.P.y + Math.sin(a) * 22,
-        vx: Math.cos(a) * w.spd,
-        vy: Math.sin(a) * w.spd,
-        l: w.life,
-        dmg: w.dmg,
-        c: w.color,
-        r: w.r,
-      });
-    }
-
-    if (G.P.weapons[G.P.wep] === 'shotgun') {
-      sound.shotgun();
-    } else {
-      sound.shoot();
-    }
-  }, [getWeaponsConfig, isPaused]);
-
-  const initPhase = useCallback((phaseNum: number, keepP: boolean = false) => {
-    const G = gameStateRef.current;
-    G.level = phaseNum;
-    G.mode = 'world';
-    G.t = 0;
-    G.spawnT = 2;
-    G.got = 0;
-    G.winT = 0;
-    G.obs = [];
-    G.haz = [];
-    G.bombs = [];
-    G.blasts = [];
-    G.bullets = [];
-    G.ebul = [];
-    G.en = [];
-    G.drops = [];
-    G.parts = [];
-    G.pickups = [];
-    G.boss = null;
-
-    const L = LV_DATA[Math.min(phaseNum, 3) - 1];
-    G.W = L.W;
-    G.H = L.H;
-
-    // House placement in center
-    G.house = { x: G.W / 2 - 85, y: G.H / 2 - 65, w: 170, h: 130 };
-    G.obs.push({ x: G.house.x, y: G.house.y, w: 170, h: 130, t: 3 });
-
-    const st = { x: 300, y: G.H - 300 };
-    const hc = { x: G.W / 2, y: G.H / 2 };
-    G.keys = [];
-
-    // Keys generation
-    while (G.keys.length < 3) {
-      const k = { x: R(200, G.W - 200), y: R(200, G.H - 200), got: 0 };
-      if (D(k, st) > L.kd && D(k, hc) > 500 && G.keys.every((o) => D(o, k) > 1000)) {
-        G.keys.push(k);
-      }
-    }
-
-    // Hazards
-    for (let i = 0; i < L.nhaz; i++) {
-      const z = { x: R(200, G.W - 200), y: R(200, G.H - 200), r: R(90, 170) };
-      if (D(z, st) > z.r + 400 && D(z, hc) > z.r + 300 && G.keys.every((k) => D(k, z) > z.r + 90)) {
-        G.haz.push(z);
-      }
-    }
-
-    // Obstacles
-    for (let i = 0; i < L.nobs; i++) {
-      const w = R(60, 130);
-      const h = R(60, 130);
-      const o = { x: R(60, G.W - 200), y: R(60, G.H - 200), w, h, t: i % 3 };
-      const c = { x: o.x + w / 2, y: o.y + h / 2 };
-      if (D(c, st) > 260 && D(c, hc) > 330 && G.keys.every((k) => D(c, k) > 170)) {
-        G.obs.push(o);
-      }
-    }
-
-    // Shotgun pickup if not owned
-    const pw = G.P && keepP ? G.P.weapons.slice() : (['pistol'] as WeaponType[]);
-    if (!pw.includes('shotgun')) {
-      for (let i = 0; i < 400; i++) {
-        const q = { x: R(300, G.W - 300), y: R(300, G.H - 300) };
-        if (
-          D(q, st) > 950 &&
-          D(q, hc) > 420 &&
-          !inObs(q.x, q.y, 45) &&
-          !G.haz.some((z) => D(z, q) < z.r + 70) &&
-          G.keys.every((k) => D(k, q) > 220)
-        ) {
-          G.pickups.push({ x: q.x, y: q.y, type: 'shotgun' });
-          break;
-        }
-      }
-    }
-
-    // Player stats from RPG upgrades
-    const maxHp = 100 + stats.upgrades.maxHp * 10;
-    const speed = BASE_CFG.pSpeed * (1 + stats.upgrades.moveSpeed * 0.04);
-    const startBombs = stats.upgrades.startBombs;
-    G.nBombs = keepP ? G.nBombs : startBombs;
-
-    G.P = {
-      x: st.x,
-      y: st.y,
-      r: 16,
-      hp: keepP && G.P ? Math.min(maxHp, G.P.hp + 40) : maxHp,
-      maxHp,
-      cd: 0,
-      inv: 0,
-      ang: 0,
-      weapons: pw,
-      wep: G.P && keepP ? Math.min(G.P.wep, pw.length - 1) : 0,
-      speed,
-      baseDmg: BASE_CFG.pDmg * (1 + stats.upgrades.damage * 0.05),
-    };
-
-    G.cam = { x: G.P.x - 600, y: G.P.y - 500 };
-    fillBombs();
-
-    // Turrets in phase 3
-    let nTur = 0;
-    for (let i = 0; i < L.tur * 4 && nTur < L.tur; i++) {
-      const q = { x: R(200, G.W - 200), y: R(200, G.H - 200) };
-      if (D(q, st) > 700 && D(q, hc) > 250 && !inObs(q.x, q.y, 40) && !G.haz.some((z) => D(z, q) < z.r + 30)) {
-        spawnEnemy('turret', q.x, q.y);
-        nTur++;
-      }
-    }
-
-    say(L.tip, 4.5);
-  }, [stats.upgrades, fillBombs, inObs, say, spawnEnemy]);
-
-  const enterArena = useCallback(() => {
-    const G = gameStateRef.current;
-    sound.enter();
-    G.mode = 'arena';
-    G.W = 1200;
-    G.H = 1000;
-    G.fade = 1;
-    G.obs = [
-      [300, 300],
-      [800, 300],
-      [300, 650],
-      [800, 650],
-    ].map((p) => ({ x: p[0], y: p[1], w: 100, h: 100, t: 0 }));
-
-    G.en = [];
-    G.ebul = [];
-    G.bullets = [];
-    G.drops = [];
-    G.pickups = [];
-    G.haz = LV_DATA[Math.min(G.level, 3) - 1].nhaz
-      ? [
-          { x: 210, y: 790, r: 75 },
-          { x: 990, y: 790, r: 75 },
-          { x: 600, y: 520, r: 60 },
-        ]
-      : [];
-
-    if (G.P) {
-      G.P.x = 600;
-      G.P.y = 900;
-    }
-    G.cam.x = 0;
-    G.cam.y = 0;
-    G.bombs = [];
-    G.blasts = [];
-    fillBombs();
-
-    const mx = BASE_CFG.bossHp * (1 + 0.3 * (G.level - 1));
-    G.boss = {
-      kind: Math.min(G.level, 3),
-      x: 600,
-      y: 200,
-      r: [54, 46, 72][Math.min(G.level, 3) - 1],
-      hp: mx,
-      max: mx,
-      t: 0,
-      p2: 0,
-      state: 'idle',
-      a1: 2,
-      a2: 3,
-      a3: 6,
-      a4: 4,
-      wT: 0,
-      dT: 0,
-      vx: 0,
-      vy: 0,
-      dead: 0,
-    };
-
-    say('¡El guardián despierta! ¡Prepárate para la batalla!', 3);
-  }, [fillBombs, say]);
-
-  const interact = useCallback(() => {
-    const G = gameStateRef.current;
-    if (G.mode !== 'world' || !G.P) return;
-    const c = { x: G.house.x + G.house.w / 2, y: G.house.y + G.house.h / 2 };
-    if (D(G.P, c) > 190) return;
-
-    if (G.got < 3) {
-      say(`Necesitas las 3 llaves sagradas (${G.got}/3)`, 2.5);
-      sound.hurt();
-    } else {
-      enterArena();
-    }
-  }, [enterArena, say]);
-
-  // Boss updates
-  const updateBoss = (dt: number) => {
-    const G = gameStateRef.current;
-    const b = G.boss;
-    if (!b || !G.P) return;
-    b.t += dt;
-
-    if (!b.p2 && b.hp < b.max / 2) {
-      b.p2 = 1;
-      say('¡El jefe se enfurece! Fase 2 Desatada', 2.5);
-      sound.playTone(90, 0.6, 'sawtooth', 0.12, 200);
-      G.shake = settings.quality === 'low' ? 6 : 20;
-    }
-
-    const p2 = b.p2;
-    const ang = Math.atan2(G.P.y - b.y, G.P.x - b.x);
-
-    if (b.kind === 2) {
-      // Spectre: Teleportation & fan shots
-      if ((b.a4 -= dt) <= 0) {
-        b.a4 = p2 ? 2.2 : 3.2;
-        const a = R(0, 6.28);
-        b.x = Math.max(80, Math.min(1120, G.P.x + Math.cos(a) * 300));
-        b.y = Math.max(80, Math.min(920, G.P.y + Math.sin(a) * 300));
-        burstParticles(b.x, b.y, '#9be7ff', 16);
-        sound.playTone(500, 0.3, 'sine', 0.08, -300);
-        const q = Math.atan2(G.P.y - b.y, G.P.x - b.x);
-        for (let i = -2; i <= 2; i++) {
-          enemyShoot(b.x, b.y, q + i * 0.2, 420, 10);
-        }
-      }
-      if ((b.a2 -= dt) <= 0) {
-        b.a2 = p2 ? 1.8 : 3;
-        for (let i = 0; i < 14; i++) {
-          enemyShoot(b.x, b.y, (i / 14) * 6.28 + b.t, 230, 8);
-        }
-      }
-      if (p2 && (b.a3 -= dt) <= 0) {
-        b.a3 = 5;
-        if (G.en.length < 7) {
-          for (let i = 0; i < 3; i++) {
-            spawnEnemy('bat', b.x + R(-60, 60), b.y + R(-60, 60));
-          }
-        }
-      }
-    } else if (b.kind === 3) {
-      // Magma Colossus: Spirals, brutes
-      b.x += Math.cos(ang) * 40 * dt;
-      b.y += Math.sin(ang) * 40 * dt;
-      if ((b.a1 -= dt) <= 0) {
-        b.a1 = p2 ? 0.12 : 0.18;
-        b.sp = (b.sp || 0) + 0.35;
-        enemyShoot(b.x, b.y, b.sp, 300, 7);
-        enemyShoot(b.x, b.y, b.sp + 3.14, 300, 7);
-        if (p2) {
-          enemyShoot(b.x, b.y, b.sp + 1.57, 300, 7);
-          enemyShoot(b.x, b.y, b.sp - 1.57, 300, 7);
-        }
-      }
-      if ((b.a3 -= dt) <= 0) {
-        b.a3 = 7;
-        if (p2 && G.en.length < 4) {
-          spawnEnemy('brute', b.x, b.y + 90);
-        }
-      }
-      if ((b.a2 -= dt) <= 0) {
-        b.a2 = 4;
-        for (let i = -3; i <= 3; i++) {
-          enemyShoot(b.x, b.y, ang + i * 0.18, 420, 12);
-        }
-      }
-    } else {
-      // Guardian of the Forest
-      if (b.state === 'idle') {
-        b.x += (600 + Math.sin(b.t * 0.8) * 380 - b.x) * dt * 2;
-        b.y += (230 + Math.sin(b.t * 1.3) * 70 - b.y) * dt * 2;
-        if ((b.a1 -= dt) <= 0) {
-          b.a1 = p2 ? 0.9 : 1.4;
-          for (let i = -1; i <= 1; i++) {
-            enemyShoot(b.x, b.y, ang + i * 0.26, 380, 10);
-          }
-        }
-        if ((b.a2 -= dt) <= 0) {
-          b.a2 = p2 ? 2.2 : 3.6;
-          const n = p2 ? 18 : 12;
-          for (let i = 0; i < n; i++) {
-            enemyShoot(b.x, b.y, (i / n) * 6.28 + b.t, 260, 8);
-          }
-        }
-        if (p2) {
-          if ((b.a3 -= dt) <= 0) {
-            b.a3 = 6;
-            if (G.en.length < 5) {
-              spawnEnemy('chaser', b.x - 60, b.y + 40);
-              spawnEnemy('chaser', b.x + 60, b.y + 40);
-            }
-          }
-          if ((b.a4 -= dt) <= 0) {
-            b.state = 'wind';
-            b.wT = 0.6;
-            b.vx = Math.cos(ang) * 680;
-            b.vy = Math.sin(ang) * 680;
-          }
-        }
-      } else if (b.state === 'wind') {
-        if ((b.wT -= dt) <= 0) {
-          b.state = 'dash';
-          b.dT = 0.7;
-          sound.playTone(120, 0.5, 'sawtooth', 0.1, 100);
-        }
-      } else {
-        b.x += b.vx * dt;
-        b.y += b.vy * dt;
-        b.x = Math.max(70, Math.min(1130, b.x));
-        b.y = Math.max(70, Math.min(930, b.y));
-        if ((b.dT -= dt) <= 0) {
-          b.state = 'idle';
-          b.a4 = 4;
-        }
-      }
-    }
-
-    if (D(b, G.P) < b.r + G.P.r) {
-      hurtPlayer(BASE_CFG.bossContact);
-    }
-
-    if (b.hp <= 0) {
-      b.dead = 1;
-      burstParticles(b.x, b.y, '#ffd23f', 70);
-      burstParticles(b.x, b.y, '#ff5a4d', 50);
-      sound.bossDie();
-      G.en = [];
-      G.ebul = [];
-      G.winT = 2.0;
-      G.shake = settings.quality === 'low' ? 8 : 30;
-      G.boss = null;
-      say('¡JEFE DERROTADO! ¡Victoria gloriosa!', 3.5);
-
-      // Huge rewards
-      const bossXp = 450 * G.level;
-      const bossGold = 250 * G.level;
-      G.score += 5000 * G.level;
-      const res = StorageManager.addXpAndGold(bossXp, bossGold);
-      onStatsUpdate(res.newStats);
-      StorageManager.updateChallengeProgress('boss', 1);
-
-      addFloatText(600, 300, `+${bossXp} XP  +${bossGold} Oro`, '#ffd23f');
-      if (res.leveledUp) {
-        sound.levelUp();
-      }
-    }
-  };
-
-  // Push helper for obstacles
-  const pushObstacles = (o: { x: number; y: number }, r: number) => {
-    const G = gameStateRef.current;
-    for (const k of G.obs) {
-      const cx = Math.max(k.x, Math.min(o.x, k.x + k.w));
-      const cy = Math.max(k.y, Math.min(o.y, k.y + k.h));
-      const dx = o.x - cx;
-      const dy = o.y - cy;
-      const d = Math.hypot(dx, dy);
-      if (d < r) {
-        if (d > 0) {
-          o.x += (dx / d) * (r - d);
-          o.y += (dy / d) * (r - d);
-        } else {
-          o.x += r;
-        }
-      }
-    }
-    o.x = Math.max(r, Math.min(G.W - r, o.x));
-    o.y = Math.max(r, Math.min(G.H - r, o.y));
-  };
-
-  const hitObstacle = (b: { x: number; y: number }) => {
-    const G = gameStateRef.current;
-    return (
-      G.obs.some((k) => b.x > k.x && b.x < k.x + k.w && b.y > k.y && b.y < k.y + k.h) ||
-      b.x < 0 ||
-      b.y < 0 ||
-      b.x > G.W ||
-      b.y > G.H
-    );
-  };
-
-  // Game Loop
+  // Main standalone game loop (runs ONCE and never gets re-triggered by React renders)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const X = canvas.getContext('2d');
     if (!X) return;
 
+    const G = gameStateRef.current;
+    const R = (a: number, b: number) => a + Math.random() * (b - a);
+    const D = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+    const say = (s: string, d: number = 3) => {
+      G.txt = s;
+      G.txtT = d;
+    };
+
+    const addFloatText = (x: number, y: number, text: string, color: string) => {
+      G.floatingTexts.push({ x, y, text, color, life: 1.2 });
+    };
+
+    const burstParticles = (x: number, y: number, col: string, n: number = 8) => {
+      const q = propsRef.current.settings.quality;
+      const maxP = q === 'low' ? 6 : q === 'medium' ? 12 : n;
+      for (let i = 0; i < maxP; i++) {
+        const a = R(0, 6.28);
+        const s = R(60, 240);
+        G.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, l: R(0.3, 0.7), c: col });
+      }
+    };
+
+    const inObs = (x: number, y: number, m: number) => {
+      return G.obs.some((k) => x > k.x - m && x < k.x + k.w + m && y > k.y - m && y < k.y + k.h + m);
+    };
+
+    const pushObstacles = (o: { x: number; y: number }, r: number) => {
+      for (const k of G.obs) {
+        const cx = Math.max(k.x, Math.min(o.x, k.x + k.w));
+        const cy = Math.max(k.y, Math.min(o.y, k.y + k.h));
+        const dx = o.x - cx;
+        const dy = o.y - cy;
+        const d = Math.hypot(dx, dy);
+        if (d < r) {
+          if (d > 0) {
+            o.x += (dx / d) * (r - d);
+            o.y += (dy / d) * (r - d);
+          } else {
+            o.x += r;
+          }
+        }
+      }
+      o.x = Math.max(r, Math.min(G.W - r, o.x));
+      o.y = Math.max(r, Math.min(G.H - r, o.y));
+    };
+
+    const hitObstacle = (b: { x: number; y: number }) => {
+      return (
+        G.obs.some((k) => b.x > k.x && b.x < k.x + k.w && b.y > k.y && b.y < k.y + k.h) ||
+        b.x < 0 ||
+        b.y < 0 ||
+        b.x > G.W ||
+        b.y > G.H
+      );
+    };
+
+    const spawnBomb = () => {
+      if (!G.P) return;
+      for (let i = 0; i < 200; i++) {
+        const x = R(80, G.W - 80);
+        const y = R(80, G.H - 80);
+        const q = { x, y };
+        if (
+          D(q, G.P) > (G.mode === 'world' ? 600 : 250) &&
+          !inObs(x, y, 40) &&
+          !G.haz.some((z) => D(z, q) < z.r + 30) &&
+          (G.mode === 'world' || y > 300) &&
+          !G.bombs.some((b) => D(b, q) < 400)
+        ) {
+          G.bombs.push(q);
+          return;
+        }
+      }
+    };
+
+    const fillBombs = () => {
+      while (G.bombs.length < BOMB_CFG.onMap) {
+        const n = G.bombs.length;
+        spawnBomb();
+        if (G.bombs.length === n) break;
+      }
+    };
+
+    const getWeaponsConfig = (): Record<WeaponType, WeaponDef> => {
+      const pStats = propsRef.current.stats;
+      const pEquipped = propsRef.current.equipped;
+      const weaponSkin = DEFAULT_WEAPON_SKINS.find((w) => w.id === pEquipped.weaponSkinId) || DEFAULT_WEAPON_SKINS[0];
+      const dmgBonus = 1 + pStats.upgrades.damage * 0.05;
+      const fireCooldown = Math.max(0.08, 0.15 * (1 - pStats.upgrades.fireRate * 0.04));
+
+      return {
+        pistol: {
+          name: 'Pistola',
+          fire: fireCooldown,
+          spd: 740,
+          dmg: 22 * dmgBonus,
+          n: 1,
+          spread: 0,
+          life: 1.1,
+          color: weaponSkin.bulletColor,
+          r: 5,
+        },
+        shotgun: {
+          name: 'Escopeta',
+          fire: fireCooldown,
+          spd: 740,
+          dmg: 22 * dmgBonus,
+          n: 2,
+          spread: (20 * Math.PI) / 180,
+          life: 1.1,
+          color: weaponSkin.id === 'default_metal' ? '#ffb020' : weaponSkin.bulletColor,
+          r: 5,
+        },
+      };
+    };
+
+    const firePlayerWeapon = () => {
+      if (!G.P || G.winT > 0 || propsRef.current.isPaused) return;
+
+      const wConfig = getWeaponsConfig();
+      const w = wConfig[G.P.weapons[G.P.wep]] || wConfig.pistol;
+      G.P.cd = w.fire;
+
+      for (let i = 0; i < w.n; i++) {
+        const a = G.P.ang + (w.n > 1 ? (i - (w.n - 1) / 2) * w.spread : 0);
+        G.bullets.push({
+          x: G.P.x + Math.cos(a) * 22,
+          y: G.P.y + Math.sin(a) * 22,
+          vx: Math.cos(a) * w.spd,
+          vy: Math.sin(a) * w.spd,
+          l: w.life,
+          dmg: w.dmg,
+          c: w.color,
+          r: w.r,
+        });
+      }
+
+      if (G.P.weapons[G.P.wep] === 'shotgun') {
+        sound.shotgun();
+      } else {
+        sound.shoot();
+      }
+    };
+
+    const cycleWeapon = () => {
+      if (!G.P || !G.P.weapons || G.P.weapons.length < 2) return;
+      G.P.wep = (G.P.wep + 1) % G.P.weapons.length;
+      G.P.cd = Math.max(G.P.cd, 0.15);
+      const wConfig = getWeaponsConfig();
+      const currName = wConfig[G.P.weapons[G.P.wep]].name.toUpperCase();
+      say(`Arma: ${currName}`, 1.2);
+      sound.click();
+    };
+
+    const explode = () => {
+      if (!G.P || G.nBombs <= 0 || G.winT > 0 || propsRef.current.isPaused) return;
+      G.nBombs--;
+      sound.bomb();
+
+      for (const e of G.en) {
+        if (e.hp > 0 && D(e, G.P) < BOMB_CFG.r + e.r) {
+          e.hp = 0;
+          killEnemy(e);
+        }
+      }
+      for (const b of G.ebul) {
+        if (D(b, G.P) < BOMB_CFG.r) b.l = 0;
+      }
+      if (G.boss && D(G.boss, G.P) < BOMB_CFG.r + G.boss.r) {
+        G.boss.hp -= BOMB_CFG.bossDmg;
+        burstParticles(G.boss.x, G.boss.y, '#ffd23f', 24);
+        addFloatText(G.boss.x, G.boss.y - 30, `-${BOMB_CFG.bossDmg}`, '#ff4444');
+      }
+
+      G.blasts.push({ x: G.P.x, y: G.P.y, l: 0.5 });
+      burstParticles(G.P.x, G.P.y, '#ff9a3d', 35);
+      G.shake = propsRef.current.settings.quality === 'low' ? 6 : 22;
+      say(`¡BOMBA DETONADA! Te quedan ${G.nBombs}`, 2);
+    };
+
+    const spawnEnemy = (type: string, x: number, y: number) => {
+      const c = (BASE_CFG as any)[type];
+      const sc = 1 + 0.12 * (G.level - 1) + 0.12 * G.got;
+      G.en.push({
+        type,
+        x,
+        y,
+        r: c.r,
+        hp: c.hp * sc,
+        max: c.hp * sc,
+        cd: R(0.5, 1.5),
+        dir: Math.random() < 0.5 ? 1 : -1,
+      });
+    };
+
+    const enemyShoot = (x: number, y: number, a: number, s: number, d: number) => {
+      G.ebul.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, dmg: d, l: 3 });
+    };
+
+    const killEnemy = (e: any) => {
+      sound.kill();
+      G.kills++;
+      burstParticles(e.x, e.y, e.type === 'chaser' ? '#ff5a4d' : '#c56bff', 12);
+
+      const xpBase = e.type === 'brute' ? 45 : e.type === 'turret' ? 35 : e.type === 'shooter' ? 25 : 18;
+      const goldBase = e.type === 'brute' ? 20 : e.type === 'turret' ? 15 : 10;
+      G.score += xpBase * 10;
+
+      const result = StorageManager.addXpAndGold(xpBase, goldBase);
+      propsRef.current.onStatsUpdate(result.newStats);
+
+      addFloatText(e.x, e.y - 12, `+${xpBase} XP`, '#38bdf8');
+      if (Math.random() < 0.6) {
+        addFloatText(e.x, e.y + 12, `+${goldBase} Oro`, '#ffd23f');
+      }
+
+      if (result.leveledUp) {
+        sound.levelUp();
+        say(`¡SUBISTE AL NIVEL ${result.newLevel}! Atributos Mejorados`, 4);
+        addFloatText(G.P?.x || e.x, (G.P?.y || e.y) - 50, '¡NIVEL AUMENTADO!', '#4ade80');
+        notificationService.emitToast('¡Subiste de Nivel!', `Has alcanzado el Nivel ${result.newLevel}.`, 'level');
+      }
+
+      StorageManager.updateChallengeProgress('kills', 1);
+      if (G.P && G.P.weapons[G.P.wep] === 'shotgun') {
+        StorageManager.updateChallengeProgress('shotgun', 1);
+      }
+
+      const dropChance = BASE_CFG.dropHeal + propsRef.current.stats.upgrades.dropRate * 0.03;
+      if (Math.random() < dropChance) {
+        G.drops.push({ x: e.x, y: e.y });
+      }
+    };
+
+    const hurtPlayer = (dmg: number) => {
+      if (!G.P || G.P.inv > 0 || propsRef.current.isPaused) return;
+      G.P.hp -= dmg;
+      G.P.inv = BASE_CFG.inv;
+      G.shake = propsRef.current.settings.quality === 'low' ? 4 : 10;
+      G.flash = 0.35;
+      sound.hurt();
+      addFloatText(G.P.x, G.P.y - 25, `-${Math.ceil(dmg)}`, '#ef4444');
+
+      if (G.P.hp <= 0) {
+        G.P.hp = 0;
+        sound.bossDie();
+        StorageManager.recordScore(G.score, Math.floor(G.timeSeconds), G.level);
+        propsRef.current.onGameOver(G.score, G.level, G.kills);
+      }
+    };
+
+    const initPhase = (phaseNum: number, keepP: boolean = false) => {
+      G.level = phaseNum;
+      G.mode = 'world';
+      G.t = 0;
+      G.spawnT = 2;
+      G.got = 0;
+      G.winT = 0;
+      G.obs = [];
+      G.haz = [];
+      G.bombs = [];
+      G.blasts = [];
+      G.bullets = [];
+      G.ebul = [];
+      G.en = [];
+      G.drops = [];
+      G.parts = [];
+      G.pickups = [];
+      G.boss = null;
+
+      const L = LV_DATA[Math.min(phaseNum, 3) - 1];
+      G.W = L.W;
+      G.H = L.H;
+
+      G.house = { x: G.W / 2 - 85, y: G.H / 2 - 65, w: 170, h: 130 };
+      G.obs.push({ x: G.house.x, y: G.house.y, w: 170, h: 130, t: 3 });
+
+      const st = { x: 300, y: G.H - 300 };
+      const hc = { x: G.W / 2, y: G.H / 2 };
+      G.keys = [];
+
+      while (G.keys.length < 3) {
+        const k = { x: R(200, G.W - 200), y: R(200, G.H - 200), got: 0 };
+        if (D(k, st) > L.kd && D(k, hc) > 500 && G.keys.every((o) => D(o, k) > 1000)) {
+          G.keys.push(k);
+        }
+      }
+
+      for (let i = 0; i < L.nhaz; i++) {
+        const z = { x: R(200, G.W - 200), y: R(200, G.H - 200), r: R(90, 170) };
+        if (D(z, st) > z.r + 400 && D(z, hc) > z.r + 300 && G.keys.every((k) => D(k, z) > z.r + 90)) {
+          G.haz.push(z);
+        }
+      }
+
+      for (let i = 0; i < L.nobs; i++) {
+        const w = R(60, 130);
+        const h = R(60, 130);
+        const o = { x: R(60, G.W - 200), y: R(60, G.H - 200), w, h, t: i % 3 };
+        const c = { x: o.x + w / 2, y: o.y + h / 2 };
+        if (D(c, st) > 260 && D(c, hc) > 330 && G.keys.every((k) => D(c, k) > 170)) {
+          G.obs.push(o);
+        }
+      }
+
+      const pw = G.P && keepP ? G.P.weapons.slice() : (['pistol'] as WeaponType[]);
+      if (!pw.includes('shotgun')) {
+        for (let i = 0; i < 400; i++) {
+          const q = { x: R(300, G.W - 300), y: R(300, G.H - 300) };
+          if (
+            D(q, st) > 950 &&
+            D(q, hc) > 420 &&
+            !inObs(q.x, q.y, 45) &&
+            !G.haz.some((z) => D(z, q) < z.r + 70) &&
+            G.keys.every((k) => D(k, q) > 220)
+          ) {
+            G.pickups.push({ x: q.x, y: q.y, type: 'shotgun' });
+            break;
+          }
+        }
+      }
+
+      const pStats = propsRef.current.stats;
+      const maxHp = 100 + pStats.upgrades.maxHp * 10;
+      const speed = BASE_CFG.pSpeed * (1 + pStats.upgrades.moveSpeed * 0.04);
+      const startBombs = pStats.upgrades.startBombs;
+      G.nBombs = keepP ? G.nBombs : startBombs;
+
+      G.P = {
+        x: st.x,
+        y: st.y,
+        r: 16,
+        hp: keepP && G.P ? Math.min(maxHp, G.P.hp + 40) : maxHp,
+        maxHp,
+        cd: 0,
+        inv: 0,
+        ang: 0,
+        weapons: pw,
+        wep: G.P && keepP ? Math.min(G.P.wep, pw.length - 1) : 0,
+        speed,
+        baseDmg: BASE_CFG.pDmg * (1 + pStats.upgrades.damage * 0.05),
+      };
+
+      G.cam = { x: G.P.x - 600, y: G.P.y - 500 };
+      fillBombs();
+
+      let nTur = 0;
+      for (let i = 0; i < L.tur * 4 && nTur < L.tur; i++) {
+        const q = { x: R(200, G.W - 200), y: R(200, G.H - 200) };
+        if (D(q, st) > 700 && D(q, hc) > 250 && !inObs(q.x, q.y, 40) && !G.haz.some((z) => D(z, q) < z.r + 30)) {
+          spawnEnemy('turret', q.x, q.y);
+          nTur++;
+        }
+      }
+
+      say(L.tip, 4);
+    };
+
+    const enterArena = () => {
+      sound.enter();
+      G.mode = 'arena';
+      G.W = 1200;
+      G.H = 1000;
+      G.fade = 1;
+      G.obs = [
+        [300, 300],
+        [800, 300],
+        [300, 650],
+        [800, 650],
+      ].map((p) => ({ x: p[0], y: p[1], w: 100, h: 100, t: 0 }));
+
+      G.en = [];
+      G.ebul = [];
+      G.bullets = [];
+      G.drops = [];
+      G.pickups = [];
+      G.haz = LV_DATA[Math.min(G.level, 3) - 1].nhaz
+        ? [
+            { x: 210, y: 790, r: 75 },
+            { x: 990, y: 790, r: 75 },
+            { x: 600, y: 520, r: 60 },
+          ]
+        : [];
+
+      if (G.P) {
+        G.P.x = 600;
+        G.P.y = 900;
+      }
+      G.cam.x = 0;
+      G.cam.y = 0;
+      G.bombs = [];
+      G.blasts = [];
+      fillBombs();
+
+      const mx = BASE_CFG.bossHp * (1 + 0.3 * (G.level - 1));
+      G.boss = {
+        kind: Math.min(G.level, 3),
+        x: 600,
+        y: 200,
+        r: [54, 46, 72][Math.min(G.level, 3) - 1],
+        hp: mx,
+        max: mx,
+        t: 0,
+        p2: 0,
+        state: 'idle',
+        a1: 2,
+        a2: 3,
+        a3: 6,
+        a4: 4,
+        wT: 0,
+        dT: 0,
+        vx: 0,
+        vy: 0,
+        dead: 0,
+      };
+
+      say('¡El guardián despierta! ¡Prepárate!', 3);
+    };
+
+    const interact = () => {
+      if (G.mode !== 'world' || !G.P) return;
+      const c = { x: G.house.x + G.house.w / 2, y: G.house.y + G.house.h / 2 };
+      if (D(G.P, c) > 190) return;
+
+      if (G.got < 3) {
+        say(`Necesitas las 3 llaves sagradas (${G.got}/3)`, 2.5);
+        sound.hurt();
+      } else {
+        enterArena();
+      }
+    };
+
+    const updateBoss = (dt: number) => {
+      const b = G.boss;
+      if (!b || !G.P) return;
+      b.t += dt;
+
+      if (!b.p2 && b.hp < b.max / 2) {
+        b.p2 = 1;
+        say('¡El jefe se enfurece! Fase 2 Desatada', 2.5);
+        sound.playTone(90, 0.6, 'sawtooth', 0.12, 200);
+        G.shake = propsRef.current.settings.quality === 'low' ? 6 : 20;
+      }
+
+      const p2 = b.p2;
+      const ang = Math.atan2(G.P.y - b.y, G.P.x - b.x);
+
+      if (b.kind === 2) {
+        if ((b.a4 -= dt) <= 0) {
+          b.a4 = p2 ? 2.2 : 3.2;
+          const a = R(0, 6.28);
+          b.x = Math.max(80, Math.min(1120, G.P.x + Math.cos(a) * 300));
+          b.y = Math.max(80, Math.min(920, G.P.y + Math.sin(a) * 300));
+          burstParticles(b.x, b.y, '#9be7ff', 16);
+          sound.playTone(500, 0.3, 'sine', 0.08, -300);
+          const q = Math.atan2(G.P.y - b.y, G.P.x - b.x);
+          for (let i = -2; i <= 2; i++) {
+            enemyShoot(b.x, b.y, q + i * 0.2, 420, 10);
+          }
+        }
+        if ((b.a2 -= dt) <= 0) {
+          b.a2 = p2 ? 1.8 : 3;
+          for (let i = 0; i < 14; i++) {
+            enemyShoot(b.x, b.y, (i / 14) * 6.28 + b.t, 230, 8);
+          }
+        }
+        if (p2 && (b.a3 -= dt) <= 0) {
+          b.a3 = 5;
+          if (G.en.length < 7) {
+            for (let i = 0; i < 3; i++) {
+              spawnEnemy('bat', b.x + R(-60, 60), b.y + R(-60, 60));
+            }
+          }
+        }
+      } else if (b.kind === 3) {
+        b.x += Math.cos(ang) * 40 * dt;
+        b.y += Math.sin(ang) * 40 * dt;
+        if ((b.a1 -= dt) <= 0) {
+          b.a1 = p2 ? 0.12 : 0.18;
+          b.sp = (b.sp || 0) + 0.35;
+          enemyShoot(b.x, b.y, b.sp, 300, 7);
+          enemyShoot(b.x, b.y, b.sp + 3.14, 300, 7);
+          if (p2) {
+            enemyShoot(b.x, b.y, b.sp + 1.57, 300, 7);
+            enemyShoot(b.x, b.y, b.sp - 1.57, 300, 7);
+          }
+        }
+        if ((b.a3 -= dt) <= 0) {
+          b.a3 = 7;
+          if (p2 && G.en.length < 4) {
+            spawnEnemy('brute', b.x, b.y + 90);
+          }
+        }
+        if ((b.a2 -= dt) <= 0) {
+          b.a2 = 4;
+          for (let i = -3; i <= 3; i++) {
+            enemyShoot(b.x, b.y, ang + i * 0.18, 420, 12);
+          }
+        }
+      } else {
+        if (b.state === 'idle') {
+          b.x += (600 + Math.sin(b.t * 0.8) * 380 - b.x) * dt * 2;
+          b.y += (230 + Math.sin(b.t * 1.3) * 70 - b.y) * dt * 2;
+          if ((b.a1 -= dt) <= 0) {
+            b.a1 = p2 ? 0.9 : 1.4;
+            for (let i = -1; i <= 1; i++) {
+              enemyShoot(b.x, b.y, ang + i * 0.26, 380, 10);
+            }
+          }
+          if ((b.a2 -= dt) <= 0) {
+            b.a2 = p2 ? 2.2 : 3.6;
+            const n = p2 ? 18 : 12;
+            for (let i = 0; i < n; i++) {
+              enemyShoot(b.x, b.y, (i / n) * 6.28 + b.t, 260, 8);
+            }
+          }
+          if (p2) {
+            if ((b.a3 -= dt) <= 0) {
+              b.a3 = 6;
+              if (G.en.length < 5) {
+                spawnEnemy('chaser', b.x - 60, b.y + 40);
+                spawnEnemy('chaser', b.x + 60, b.y + 40);
+              }
+            }
+            if ((b.a4 -= dt) <= 0) {
+              b.state = 'wind';
+              b.wT = 0.6;
+              b.vx = Math.cos(ang) * 680;
+              b.vy = Math.sin(ang) * 680;
+            }
+          }
+        } else if (b.state === 'wind') {
+          if ((b.wT -= dt) <= 0) {
+            b.state = 'dash';
+            b.dT = 0.7;
+            sound.playTone(120, 0.5, 'sawtooth', 0.1, 100);
+          }
+        } else {
+          b.x += b.vx * dt;
+          b.y += b.vy * dt;
+          b.x = Math.max(70, Math.min(1130, b.x));
+          b.y = Math.max(70, Math.min(930, b.y));
+          if ((b.dT -= dt) <= 0) {
+            b.state = 'idle';
+            b.a4 = 4;
+          }
+        }
+      }
+
+      if (D(b, G.P) < b.r + G.P.r) {
+        hurtPlayer(BASE_CFG.bossContact);
+      }
+
+      if (b.hp <= 0) {
+        b.dead = 1;
+        burstParticles(b.x, b.y, '#ffd23f', 70);
+        burstParticles(b.x, b.y, '#ff5a4d', 50);
+        sound.bossDie();
+        G.en = [];
+        G.ebul = [];
+        G.winT = 2.0;
+        G.shake = propsRef.current.settings.quality === 'low' ? 8 : 30;
+        G.boss = null;
+        say('¡JEFE DERROTADO! ¡Victoria gloriosa!', 3.5);
+
+        const bossXp = 450 * G.level;
+        const bossGold = 250 * G.level;
+        G.score += 5000 * G.level;
+        const res = StorageManager.addXpAndGold(bossXp, bossGold);
+        propsRef.current.onStatsUpdate(res.newStats);
+        StorageManager.updateChallengeProgress('boss', 1);
+
+        addFloatText(600, 300, `+${bossXp} XP  +${bossGold} Oro`, '#ffd23f');
+        if (res.leveledUp) {
+          sound.levelUp();
+        }
+      }
+    };
+
+    // Initialize initial phase
     initPhase(initialPhase);
 
+    // Keyboard events
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+        e.preventDefault();
+      }
+      G.keysPressed[k] = true;
+
+      if (k === 'escape') {
+        propsRef.current.onPause();
+      }
+      if (k === 'e' && !e.repeat) {
+        interact();
+      }
+      if (k === 'q' && !e.repeat) {
+        cycleWeapon();
+      }
+      if (k === 'r' && !e.repeat) {
+        explode();
+      }
+      if ((k === '1' || k === '2') && !e.repeat) {
+        const idx = parseInt(k, 10) - 1;
+        if (G.P && idx < G.P.weapons.length) {
+          G.P.wep = idx;
+          sound.click();
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      G.keysPressed[e.key.toLowerCase()] = false;
+    };
+
+    const handleBlur = () => {
+      G.keysPressed = {};
+      G.mouseDown = false;
+      G.isShooting = false;
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+
+    // Mouse events on canvas
+    const handleCanvasMouseMove = (e: MouseEvent) => {
+      const r = canvas.getBoundingClientRect();
+      G.mouse.x = ((e.clientX - r.left) * 1200) / r.width;
+      G.mouse.y = ((e.clientY - r.top) * 1000) / r.height;
+    };
+
+    const handleCanvasMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) {
+        G.mouseDown = true;
+      }
+    };
+
+    const handleWindowMouseUp = () => {
+      G.mouseDown = false;
+    };
+
+    canvas.addEventListener('mousemove', handleCanvasMouseMove);
+    canvas.addEventListener('mousedown', handleCanvasMouseDown);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+
+    // Wheel to cycle weapons
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      cycleWeapon();
+    };
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Touch events for canvas virtual buttons
+    const handleCanvasTouchStart = (e: TouchEvent) => {
+      const r = canvas.getBoundingClientRect();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        const tx = ((t.clientX - r.left) * 1200) / r.width;
+        const ty = ((t.clientY - r.top) * 1000) / r.height;
+
+        // Check if clicked pause in top-right
+        if (tx > 1080 && ty < 60) {
+          propsRef.current.onPause();
+          return;
+        }
+
+        // Check if near house interaction button
+        const nearH = G.P && G.mode === 'world' && D(G.P, { x: G.house.x + G.house.w / 2, y: G.house.y + G.house.h / 2 }) < 190;
+        if (nearH && tx > 400 && tx < 800 && ty > 860 && ty < 940) {
+          interact();
+          return;
+        }
+
+        // Check touch in bottom-left joystick zone
+        if (tx < 350 && ty > 650) {
+          G.touchMove = { active: true, startX: tx, startY: ty, currX: tx, currY: ty };
+        } else {
+          // Right half: aim and shoot!
+          G.mouse.x = tx;
+          G.mouse.y = ty;
+          G.mouseDown = true;
+        }
+      }
+    };
+
+    const handleCanvasTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      for (let i = 0; i < e.touches.length; i++) {
+        const t = e.touches[i];
+        const tx = ((t.clientX - r.left) * 1200) / r.width;
+        const ty = ((t.clientY - r.top) * 1000) / r.height;
+
+        if (G.touchMove.active && tx < 450) {
+          G.touchMove.currX = tx;
+          G.touchMove.currY = ty;
+        } else {
+          G.mouse.x = tx;
+          G.mouse.y = ty;
+        }
+      }
+    };
+
+    const handleCanvasTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        G.touchMove.active = false;
+        G.mouseDown = false;
+      }
+    };
+
+    canvas.addEventListener('touchstart', handleCanvasTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleCanvasTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleCanvasTouchEnd);
+    canvas.addEventListener('touchcancel', handleCanvasTouchEnd);
+
+    // =========================================================================
+    // HIGH-PERFORMANCE 60 FPS GAME LOOP
+    // =========================================================================
     let animationId: number;
-    let lastTime = performance.now();
+    let lastTime = 0;
 
     const loop = (currentTime: number) => {
-      const G = gameStateRef.current;
-      const rawDt = (currentTime - lastTime) / 1000 || 0;
+      if (lastTime === 0) {
+        lastTime = currentTime;
+      }
+      const rawDt = (currentTime - lastTime) / 1000;
       lastTime = currentTime;
-      const dt = Math.min(rawDt, 0.05);
+      const dt = Math.min(Math.max(0, rawDt), 0.05);
 
       // FPS tracking
       G.fpsCount++;
-      G.fpsTimer += rawDt;
+      G.fpsTimer += dt;
       if (G.fpsTimer >= 1.0) {
         G.fps = G.fpsCount;
         G.fpsCount = 0;
         G.fpsTimer = 0;
       }
 
-      if (!isPaused && G.P) {
+      const isCurrentPaused = propsRef.current.isPaused;
+
+      if (!isCurrentPaused && G.P) {
         G.t += dt;
         G.timeSeconds += dt;
 
@@ -933,12 +1032,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         let my = (G.keysPressed['s'] || G.keysPressed['arrowdown'] ? 1 : 0) -
                  (G.keysPressed['w'] || G.keysPressed['arrowup'] ? 1 : 0);
 
-        // Virtual joystick support
+        // Virtual joystick touch movement
         if (G.touchMove.active) {
           const dx = G.touchMove.currX - G.touchMove.startX;
           const dy = G.touchMove.currY - G.touchMove.startY;
           const dist = Math.hypot(dx, dy);
-          if (dist > 10) {
+          if (dist > 12) {
             mx = dx / dist;
             my = dy / dist;
           }
@@ -953,22 +1052,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           pushObstacles(G.P, G.P.r);
         }
 
-        // Aim angle
-        if (G.touchAim.active) {
-          G.P.ang = Math.atan2(G.touchAim.dirY, G.touchAim.dirX);
-        } else {
-          G.P.ang = Math.atan2(G.mouse.y + G.cam.y - G.P.y, G.mouse.x + G.cam.x - G.P.x);
-        }
+        // Aim angle towards mouse crosshair in world coordinates
+        G.P.ang = Math.atan2(G.mouse.y + G.cam.y - G.P.y, G.mouse.x + G.cam.x - G.P.x);
 
         G.P.cd -= dt;
         G.P.inv -= dt;
 
-        // Continuous shooting (mouse click or space or touch fire)
+        // Firing weapon
         if ((G.mouseDown || G.keysPressed[' '] || G.isShooting) && G.P.cd <= 0 && G.winT <= 0) {
           firePlayerWeapon();
         }
 
-        // Hazard damage in magma phase
+        // Magma Hazard damage
         for (const z of G.haz) {
           if (D(z, G.P) < z.r && G.winT <= 0) {
             G.P.hp -= 16 * dt;
@@ -982,8 +1077,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // Embers in high quality
-        if (curLvl.embers && settings.quality !== 'low' && Math.random() < dt * 25) {
+        // Embers particles in phase 3
+        if (curLvl.embers && propsRef.current.settings.quality !== 'low' && Math.random() < dt * 25) {
           G.parts.push({
             x: G.cam.x + R(0, 1200),
             y: G.cam.y + 1000,
@@ -994,10 +1089,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           });
         }
 
-        // Aura trail for player movement
-        if (equipped.auraId !== 'none' && (mx !== 0 || my !== 0)) {
-          const aura = DEFAULT_AURAS.find((a) => a.id === equipped.auraId);
-          if (aura && Math.random() < 0.4) {
+        // Player cosmetic aura trail
+        if (propsRef.current.equipped.auraId !== 'none' && (mx !== 0 || my !== 0)) {
+          const aura = DEFAULT_AURAS.find((a) => a.id === propsRef.current.equipped.auraId);
+          if (aura && Math.random() < 0.35) {
             G.parts.push({
               x: G.P.x + R(-8, 8),
               y: G.P.y + R(5, 15),
@@ -1063,7 +1158,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           } else {
             const s = d > 420 ? 1 : d < 280 ? -1 : 0;
             vx = Math.cos(a) * c.spd * s + Math.cos(a + 1.57) * c.spd * 0.6 * e.dir * (s ? 0 : 1);
-            vy = Math.sin(a) * c.spd * s + Math.sin(a + 1.57) * c.spd * 0.6 * e.dir * (s ? 0 : 1);
+            vy = Math.sin(a) * c.spd * s + Math.cos(a + 1.57) * c.spd * 0.6 * e.dir * (s ? 0 : 1);
             if ((e.cd -= dt) <= 0 && d < 700) {
               e.cd = c.fire;
               enemyShoot(e.x, e.y, a, c.bspd, c.dmg);
@@ -1090,7 +1185,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         G.ebul = G.ebul.filter((b) => b.l > 0);
 
-        // Drops (Healing)
+        // Healing drops
         G.drops = G.drops.filter((d) => {
           if (D(d, G.P!) < 30) {
             G.P!.hp = Math.min(G.P!.maxHp, G.P!.hp + BASE_CFG.healAmt);
@@ -1102,7 +1197,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           return true;
         });
 
-        // Bombs pickup
+        // Bomb pickups on map
         G.bombs = G.bombs.filter((b) => {
           if (D(b, G.P!) < BOMB_CFG.pick) {
             G.nBombs++;
@@ -1120,7 +1215,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         G.blasts = G.blasts.filter((b) => b.l > 0);
 
-        // Spawning in world
+        // Enemy Spawning in world mode
         if (G.mode === 'world') {
           const cap = Math.min(26, curLvl.cap + G.got * 3);
           G.spawnT -= dt;
@@ -1164,7 +1259,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             return true;
           });
 
-          // Keys pickup
+          // Keys collection
           for (const k of G.keys) {
             if (!k.got && D(k, G.P!) < 32) {
               k.got = 1;
@@ -1173,7 +1268,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               burstParticles(k.x, k.y, '#ffd23f', 20);
               const keyXp = 50;
               const res = StorageManager.addXpAndGold(keyXp, 25);
-              onStatsUpdate(res.newStats);
+              propsRef.current.onStatsUpdate(res.newStats);
               StorageManager.updateChallengeProgress('keys', 1);
 
               addFloatText(k.x, k.y - 25, `Llave Sagrada ${G.got}/3 (+${keyXp} XP)`, '#ffd23f');
@@ -1196,7 +1291,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             if (G.level >= 3) {
               sound.victory();
               StorageManager.recordScore(G.score, Math.floor(G.timeSeconds), 3);
-              onVictory(G.score, G.kills);
+              propsRef.current.onVictory(G.score, G.kills);
             } else {
               initPhase(G.level + 1, true);
             }
@@ -1210,20 +1305,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         G.cam.x += (targetCamX - G.cam.x) * camFactor;
         G.cam.y += (targetCamY - G.cam.y) * camFactor;
 
-        // Updates screen effects
+        // Visual effects decay
         G.shake = Math.max(0, G.shake - dt * 40);
         G.flash = Math.max(0, G.flash - dt);
         G.fade = Math.max(0, G.fade - dt);
         G.txtT -= dt;
 
-        // Floating texts
         for (const ft of G.floatingTexts) {
           ft.y -= 30 * dt;
           ft.life -= dt;
         }
         G.floatingTexts = G.floatingTexts.filter((ft) => ft.life > 0);
 
-        // Particles
         for (const p of G.parts) {
           p.x += p.vx * dt;
           p.y += p.vy * dt;
@@ -1232,9 +1325,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         G.parts = G.parts.filter((p) => p.l > 0);
       }
 
-      // ----------------------------------------------------
-      // DRAW CANVAS
-      // ----------------------------------------------------
+      // =======================================================================
+      // DRAW CANVAS (Optimized, World Matched, Zero React Re-render Overhead)
+      // =======================================================================
       X.save();
       X.fillStyle = '#000';
       X.fillRect(0, 0, 1200, 1000);
@@ -1260,7 +1353,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
         } else {
-          // Arena floor
           for (let x = 0; x < 12; x++) {
             for (let y = 0; y < 10; y++) {
               X.fillStyle = (x + y) % 2 ? curLvl.ar[0] : curLvl.ar[1];
@@ -1274,7 +1366,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         // Hazards (Magma pools)
         for (const z of G.haz) {
-          if (settings.quality === 'low') {
+          if (propsRef.current.settings.quality === 'low') {
             X.fillStyle = '#ff5a2a';
             X.beginPath();
             X.arc(z.x, z.y, z.r, 0, 6.28);
@@ -1450,7 +1542,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             X.fillStyle = '#fff';
             X.fillRect(e.x - 4, e.y - 4, 8, 8);
           }
-          // Health bar
+          // Health bar above enemy
           X.fillStyle = '#000';
           X.fillRect(e.x - 16, e.y - e.r - 10, 32, 5);
           X.fillStyle = '#3ddc84';
@@ -1496,7 +1588,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           X.fill();
         }
 
-        // Bombs on floor
+        // Bombs
         for (const b of G.bombs) {
           const yy = b.y + Math.sin(G.t * 3 + b.x) * 3;
           X.fillStyle = 'rgba(255,60,40,' + (0.18 + 0.1 * Math.sin(G.t * 6)) + ')';
@@ -1535,11 +1627,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           X.stroke();
         }
 
-        // ==========================================
-        // PLAYER DRAWING WITH AVATAR CUSTOMIZATION
-        // ==========================================
+        // PLAYER DRAWING
         if (G.P.inv <= 0 || Math.floor(G.t * 20) % 2) {
-          // Shadow
           X.fillStyle = 'rgba(0,0,0,0.3)';
           X.beginPath();
           X.ellipse(G.P.x, G.P.y + 20, 17, 6, 0, 0, 6.28);
@@ -1551,13 +1640,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           X.translate(G.P.x, G.P.y + 21);
           if (fl) X.scale(-1, 1);
 
-          // Base Sprite
           if (SPR.complete && SPR.naturalWidth) {
             X.drawImage(SPR, -SPR.width * 0.5, -SPR.height * 0.95, SPR.width, SPR.height);
           }
 
-          // Skin Tint Overlay
-          const skin = DEFAULT_SKINS.find((s) => s.id === equipped.skinId);
+          // Skin tint
+          const skin = DEFAULT_SKINS.find((s) => s.id === propsRef.current.equipped.skinId);
           if (skin && skin.tintRgba !== 'rgba(255, 255, 255, 0)') {
             X.fillStyle = skin.tintRgba;
             X.beginPath();
@@ -1565,12 +1653,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             X.fill();
           }
 
-          // Hat / Headgear rendering
-          const hat = DEFAULT_HATS.find((h) => h.id === equipped.hatId);
+          // Hat
+          const hat = DEFAULT_HATS.find((h) => h.id === propsRef.current.equipped.hatId);
           if (hat && hat.drawType !== 'none') {
             const headY = -SPR.height * 0.92;
             if (hat.drawType === 'crown') {
-              // Imperial Gold Crown
               X.fillStyle = '#ffd23f';
               X.strokeStyle = '#b45309';
               X.lineWidth = 1.5;
@@ -1585,21 +1672,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               X.closePath();
               X.fill();
               X.stroke();
-              // Jewels
               X.fillStyle = '#ef4444';
               X.fillRect(-2, headY - 8, 4, 4);
-              X.fillStyle = '#3b82f6';
-              X.fillRect(-9, headY - 5, 3, 3);
-              X.fillRect(6, headY - 5, 3, 3);
             } else if (hat.drawType === 'fedora') {
-              // Explorer Fedora
               X.fillStyle = hat.color;
               X.fillRect(-15, headY - 2, 30, 4);
               X.fillRect(-10, headY - 10, 20, 9);
               X.fillStyle = '#1e1b4b';
               X.fillRect(-10, headY - 4, 20, 2);
             } else if (hat.drawType === 'horns') {
-              // Valkyrie horns
               X.fillStyle = '#94a3b8';
               X.fillRect(-8, headY - 2, 16, 5);
               X.fillStyle = '#f8fafc';
@@ -1614,19 +1695,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               X.lineTo(6, headY - 4);
               X.fill();
             } else if (hat.drawType === 'bandana') {
-              // Crimson combat bandana
               X.fillStyle = hat.color;
               X.fillRect(-9, headY + 2, 18, 5);
               X.fillRect(7, headY + 4, 10, 3);
               X.fillRect(10, headY + 7, 8, 3);
             } else if (hat.drawType === 'visor') {
-              // Cyber Holo Visor
               X.fillStyle = '#06b6d4';
               X.fillRect(-10, headY + 4, 20, 4);
               X.fillStyle = 'rgba(6, 182, 212, 0.4)';
               X.fillRect(-12, headY + 2, 24, 8);
             } else if (hat.drawType === 'halo') {
-              // Angel Halo
               X.strokeStyle = '#fef08a';
               X.lineWidth = 3;
               X.beginPath();
@@ -1637,9 +1715,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
           X.restore();
 
-          // Weapon in Hand
+          // Weapon in hands
           const sh = G.P.weapons[G.P.wep] === 'shotgun';
-          const weaponSkin = DEFAULT_WEAPON_SKINS.find((w) => w.id === equipped.weaponSkinId);
+          const weaponSkin = DEFAULT_WEAPON_SKINS.find((w) => w.id === propsRef.current.equipped.weaponSkinId);
           const gunColor = weaponSkin ? weaponSkin.color : sh ? '#3a2a18' : '#222';
 
           X.save();
@@ -1652,7 +1730,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           X.restore();
         }
 
-        // Particle System
+        // Particle system
         for (const p of G.parts) {
           X.globalAlpha = Math.min(1, p.l * 2);
           X.fillStyle = p.c;
@@ -1660,7 +1738,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         X.globalAlpha = 1;
 
-        // Floating texts (+XP, +Gold, -Dmg)
+        // Floating texts
         for (const ft of G.floatingTexts) {
           X.globalAlpha = Math.min(1, ft.life);
           X.fillStyle = ft.color;
@@ -1673,23 +1751,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       X.restore();
 
-      // ==========================================
+      // =======================================================================
       // DARKNESS OVERLAY (Crypt Phase)
-      // ==========================================
+      // =======================================================================
       if (G.P && LV_DATA[Math.min(G.level, 3) - 1].dark) {
         const px = G.P.x - G.cam.x;
         const py = G.P.y - G.cam.y - 10;
         const r = G.mode === 'arena' ? 520 : 260;
 
-        if (settings.quality === 'low') {
-          // Fast low-end dark box cutout
+        if (propsRef.current.settings.quality === 'low') {
           X.fillStyle = 'rgba(2,3,12,0.95)';
           X.beginPath();
           X.rect(0, 0, 1200, 1000);
           X.arc(px, py, r * 0.9, 0, Math.PI * 2, true);
           X.fill();
         } else {
-          // Smooth radial gradient
           const g = X.createRadialGradient(px, py, r * 0.35, px, py, r * 1.7);
           g.addColorStop(0, 'rgba(2,3,12,0)');
           g.addColorStop(1, 'rgba(2,3,12,0.96)');
@@ -1697,7 +1773,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           X.fillRect(0, 0, 1200, 1000);
         }
 
-        // Key & Pickup glow spots in dark
         if (G.mode === 'world') {
           for (const k of G.keys) {
             if (!k.got && D(k, G.P) < 750) {
@@ -1718,9 +1793,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // ==========================================
-      // MINIMAP & NAVIGATION
-      // ==========================================
+      // =======================================================================
+      // MINIMAP & OBJECTIVE COMPASS
+      // =======================================================================
       if (G.P && G.mode === 'world') {
         const mw = 220;
         const mh = (mw * G.H) / G.W;
@@ -1734,11 +1809,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         X.lineWidth = 2;
         X.strokeRect(mx, my, mw, mh);
 
-        // House
         X.fillStyle = '#d9c08a';
         X.fillRect(mx + G.house.x * s - 3, my + G.house.y * s - 3, 9, 9);
 
-        // Pickups & Bombs
         for (const p of G.pickups) {
           X.fillStyle = '#ffb020';
           X.fillRect(mx + p.x * s - 3, my + p.y * s - 3, 7, 7);
@@ -1750,7 +1823,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           X.fill();
         }
 
-        // Keys on minimap if nearby
         for (const k of G.keys) {
           if (!k.got && D(k, G.P) < 1300) {
             X.fillStyle = '#ffd23f';
@@ -1759,13 +1831,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // Camera box & player
         X.strokeStyle = 'rgba(255,255,255,0.5)';
         X.strokeRect(mx + G.cam.x * s, my + G.cam.y * s, 1200 * s, 1000 * s);
         X.fillStyle = '#38bdf8';
         X.fillRect(mx + G.P.x * s - 3, my + G.P.y * s - 3, 7, 7);
 
-        // Golden Compass Arrow towards closest key or house
+        // Golden compass needle pointing to target
         const target =
           G.got >= 3
             ? { x: G.house.x + G.house.w / 2, y: G.house.y + G.house.h / 2 }
@@ -1824,12 +1895,74 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         X.fillRect(0, 0, 1200, 1000);
       }
 
-      // Announcements / Tooltips
+      // =======================================================================
+      // DIRECT IN-CANVAS HUD (0-overhead, eliminates infinite React re-renders)
+      // =======================================================================
+      if (G.P) {
+        // Health Bar
+        X.fillStyle = 'rgba(0,0,0,0.75)';
+        X.fillRect(20, 20, 260, 26);
+        const hpPercent = Math.max(0, G.P.hp / G.P.maxHp);
+        X.fillStyle = G.P.hp > 30 ? '#22c55e' : '#ef4444';
+        X.fillRect(22, 22, (260 - 4) * hpPercent, 22);
+        X.strokeStyle = '#ffd23f';
+        X.lineWidth = 1.5;
+        X.strokeRect(20, 20, 260, 26);
+        X.fillStyle = '#ffffff';
+        X.font = 'bold 16px monospace';
+        X.textAlign = 'left';
+        X.fillText(`VIDA ${Math.ceil(G.P.hp)} / ${G.P.maxHp}`, 32, 39);
+
+        // Keys & Level
+        X.fillStyle = 'rgba(0,0,0,0.75)';
+        X.fillRect(20, 52, 260, 26);
+        X.fillStyle = '#ffd23f';
+        X.fillText(`🔑 Llaves: ${G.got}/3   Nv. ${propsRef.current.stats.level}`, 30, 71);
+
+        // Weapon
+        const currentWeaponName = (G.P.weapons[G.P.wep] === 'shotgun' ? 'Escopeta' : 'Pistola').toUpperCase();
+        X.fillStyle = 'rgba(0,0,0,0.75)';
+        X.fillRect(20, 84, 260, 26);
+        X.fillStyle = '#ffb020';
+        X.fillText(`🔫 [Q] ARMA: ${currentWeaponName}`, 30, 103);
+
+        // Bombs
+        X.fillStyle = 'rgba(0,0,0,0.75)';
+        X.fillRect(20, 116, 260, 26);
+        X.fillStyle = G.nBombs > 0 ? '#ff6a4d' : '#888';
+        X.fillText(`💣 [R] BOMBAS: ${G.nBombs}`, 30, 135);
+
+        // Top Right: FPS & Gold & Pause Button
+        X.fillStyle = 'rgba(0,0,0,0.75)';
+        X.fillRect(940, 20, 240, 32);
+        X.strokeStyle = '#ffd23f';
+        X.strokeRect(940, 20, 240, 32);
+        X.fillStyle = '#ffd23f';
+        X.font = 'bold 14px monospace';
+        X.textAlign = 'right';
+        const fpsStr = propsRef.current.settings.showFps ? `${G.fps} FPS · ` : '';
+        X.fillText(`${fpsStr}🪙 ${propsRef.current.stats.gold}  [ESC]`, 1165, 42);
+
+        // Prompt near house
+        const nearHouse = G.mode === 'world' && D(G.P, { x: G.house.x + G.house.w / 2, y: G.house.y + G.house.h / 2 }) < 190;
+        if (nearHouse) {
+          X.fillStyle = G.got >= 3 ? '#22c55e' : '#f59e0b';
+          X.font = 'bold 24px monospace';
+          X.textAlign = 'center';
+          X.fillText(
+            G.got >= 3 ? '🚪 ¡PULSA [E] PARA ENTRAR A LA ARENA!' : `🔒 Necesitas 3 Llaves (${G.got}/3)`,
+            600,
+            900
+          );
+        }
+      }
+
+      // Floating Banner / Tooltips
       if (G.txtT > 0 && G.txt) {
         X.textAlign = 'center';
         X.font = 'bold 24px monospace';
         const w = X.measureText(G.txt).width + 48;
-        X.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        X.fillStyle = 'rgba(15, 23, 42, 0.9)';
         X.fillRect(600 - w / 2, 115, w, 48);
         X.strokeStyle = '#ffd23f';
         X.lineWidth = 2;
@@ -1838,22 +1971,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         X.fillText(G.txt, 600, 147);
       }
 
-      // Synchronize lightweight React HUD
-      if (G.P) {
-        const nearH = G.mode === 'world' && D(G.P, { x: G.house.x + G.house.w / 2, y: G.house.y + G.house.h / 2 }) < 190;
-        setHudData({
-          hp: Math.ceil(G.P.hp),
-          maxHp: G.P.maxHp,
-          level: stats.level,
-          phase: G.level,
-          keys: G.got,
-          bombs: G.nBombs,
-          weapon: G.P.weapons[G.P.wep] === 'shotgun' ? 'Escopeta' : 'Pistola',
-          weaponCount: G.P.weapons.length,
-          nearHouse: nearH,
-          fps: G.fps,
-          score: G.score,
-        });
+      // Virtual Mobile Touch Controls rendered directly on Canvas
+      if (G.touchMove.active) {
+        X.strokeStyle = 'rgba(255, 210, 63, 0.5)';
+        X.lineWidth = 3;
+        X.beginPath();
+        X.arc(G.touchMove.startX, G.touchMove.startY, 50, 0, Math.PI * 2);
+        X.stroke();
+
+        X.fillStyle = 'rgba(255, 210, 63, 0.8)';
+        X.beginPath();
+        X.arc(G.touchMove.currX, G.touchMove.currY, 24, 0, Math.PI * 2);
+        X.fill();
       }
 
       animationId = requestAnimationFrame(loop);
@@ -1863,259 +1992,104 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     return () => {
       cancelAnimationFrame(animationId);
-    };
-  }, [initPhase, isPaused, settings.quality, stats.level, equipped, firePlayerWeapon, hurtPlayer, killEnemy]);
-
-  // Input Listeners
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase();
-      if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
-        e.preventDefault();
-      }
-      gameStateRef.current.keysPressed[k] = true;
-
-      if (k === 'escape') {
-        onPause();
-      }
-      if (k === 'e' && !e.repeat) {
-        interact();
-      }
-      if (k === 'q' && !e.repeat) {
-        cycleWeapon();
-      }
-      if (k === 'r' && !e.repeat) {
-        explode();
-      }
-      if ((k === '1' || k === '2') && !e.repeat) {
-        const G = gameStateRef.current;
-        const idx = parseInt(k, 10) - 1;
-        if (G.P && idx < G.P.weapons.length) {
-          G.P.wep = idx;
-          sound.click();
-        }
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      gameStateRef.current.keysPressed[e.key.toLowerCase()] = false;
-    };
-
-    const handleBlur = () => {
-      gameStateRef.current.keysPressed = {};
-      gameStateRef.current.mouseDown = false;
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', handleBlur);
-
-    return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+      canvas.removeEventListener('mousemove', handleCanvasMouseMove);
+      canvas.removeEventListener('mousedown', handleCanvasMouseDown);
+      canvas.removeEventListener('wheel', handleWheel);
+      canvas.removeEventListener('touchstart', handleCanvasTouchStart);
+      canvas.removeEventListener('touchmove', handleCanvasTouchMove);
+      canvas.removeEventListener('touchend', handleCanvasTouchEnd);
+      canvas.removeEventListener('touchcancel', handleCanvasTouchEnd);
     };
-  }, [cycleWeapon, explode, interact, onPause]);
-
-  // Canvas Mouse Controls
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const r = canvas.getBoundingClientRect();
-    gameStateRef.current.mouse.x = ((e.clientX - r.left) * 1200) / r.width;
-    gameStateRef.current.mouse.y = ((e.clientY - r.top) * 1000) / r.height;
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (e.button === 0) {
-      gameStateRef.current.mouseDown = true;
-    }
-  };
-
-  const handleMouseUp = () => {
-    gameStateRef.current.mouseDown = false;
-  };
-
-  // Touch virtual joystick handlers
-  const handleJoystickStart = (e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    gameStateRef.current.touchMove = {
-      active: true,
-      startX: touch.clientX,
-      startY: touch.clientY,
-      currX: touch.clientX,
-      currY: touch.clientY,
-    };
-  };
-
-  const handleJoystickMove = (e: React.TouchEvent) => {
-    if (!gameStateRef.current.touchMove.active) return;
-    const touch = e.touches[0];
-    gameStateRef.current.touchMove.currX = touch.clientX;
-    gameStateRef.current.touchMove.currY = touch.clientY;
-  };
-
-  const handleJoystickEnd = () => {
-    gameStateRef.current.touchMove.active = false;
-  };
+  }, [initialPhase]);
 
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden select-none">
-      {/* 2D Canvas */}
       <canvas
         ref={canvasRef}
         width={1200}
         height={1000}
-        onMouseMove={handleMouseMove}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
         onContextMenu={(e) => e.preventDefault()}
-        className="w-full h-full max-w-[1200px] max-h-[1000px] aspect-[6/5] object-contain cursor-crosshair shadow-2xl"
+        className="w-full h-full max-w-[1200px] max-h-[1000px] aspect-[6/5] object-contain cursor-crosshair shadow-2xl touch-none"
       />
 
-      {/* Floating Low-Occlusion React HUD */}
-      <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between">
-        {/* Top Header Cluster */}
-        <div className="flex items-start justify-between">
-          <div className="space-y-1.5 pointer-events-auto">
-            {/* Health Bar */}
-            <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-xs border border-amber-600/40 rounded-lg p-1.5 px-3 shadow-lg">
-              <span className="text-red-400 font-bold text-xs uppercase tracking-wider">❤️ VIDA</span>
-              <div className="w-36 md:w-52 h-4 bg-slate-800 rounded-sm overflow-hidden p-0.5 border border-slate-700">
-                <div
-                  className={`h-full rounded-xs transition-all duration-150 ${
-                    hudData.hp > 30 ? 'bg-gradient-to-r from-emerald-500 to-green-400' : 'bg-red-500 animate-pulse'
-                  }`}
-                  style={{ width: `${Math.max(0, (hudData.hp / hudData.maxHp) * 100)}%` }}
-                />
-              </div>
-              <span className="text-xs font-mono font-bold text-slate-200 tabular-nums">
-                {hudData.hp}/{hudData.maxHp}
-              </span>
-            </div>
-
-            {/* Keys & Phase Cluster */}
-            <div className="flex items-center gap-2">
-              <div className="bg-slate-950/80 border border-yellow-500/50 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-amber-300 flex items-center gap-1.5 shadow-md">
-                <span>🔑 Llaves:</span>
-                <span className="text-yellow-400 text-sm font-extrabold">{hudData.keys}/3</span>
-              </div>
-              <div className="bg-slate-950/80 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-mono text-slate-300 shadow-md">
-                Fase {hudData.phase}: {hudData.phase === 1 ? 'Bosque' : hudData.phase === 2 ? 'Cripta' : 'Magma'}
-              </div>
-              <div className="bg-slate-950/80 border border-purple-500/40 rounded-lg px-2.5 py-1 text-xs font-mono text-purple-300 shadow-md">
-                Nv. {stats.level}
-              </div>
-            </div>
-
-            {/* Weapon & Bomb Badges */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={cycleWeapon}
-                className="pointer-events-auto bg-slate-900/90 hover:bg-slate-800 active:scale-95 border border-amber-500/60 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-amber-400 flex items-center gap-1 cursor-pointer transition"
-                title="Pulsa [Q] para cambiar arma"
-              >
-                <span>🔫 [Q] {hudData.weapon.toUpperCase()}</span>
-                {hudData.weaponCount > 1 && <span className="text-[10px] bg-amber-500/20 px-1 rounded text-amber-300">2/2</span>}
-              </button>
-
-              <button
-                onClick={explode}
-                disabled={hudData.bombs <= 0}
-                className={`pointer-events-auto rounded-lg px-2.5 py-1 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                  hudData.bombs > 0
-                    ? 'bg-red-950/90 hover:bg-red-900 active:scale-95 border border-red-500/80 text-red-300 shadow-red-950/50 shadow-md'
-                    : 'bg-slate-900/50 border border-slate-800 text-slate-500 cursor-not-allowed'
-                }`}
-                title="Pulsa [R] para detonar bomba"
-              >
-                <span>💣 [R] BOMBAS:</span>
-                <span className="font-extrabold text-sm text-yellow-300">{hudData.bombs}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Top Right Status & Controls */}
-          <div className="flex items-center gap-2 pointer-events-auto">
-            {settings.showFps && (
-              <div className="bg-black/70 border border-slate-800 rounded px-2 py-0.5 text-[11px] font-mono text-emerald-400">
-                {hudData.fps} FPS
-              </div>
-            )}
-            <div className="bg-black/70 border border-amber-500/40 rounded px-2.5 py-1 text-xs font-mono text-amber-300 flex items-center gap-1">
-              <span>🪙</span>
-              <span className="font-bold">{stats.gold}</span>
-            </div>
-            <button
-              onClick={onPause}
-              className="bg-slate-900/90 hover:bg-slate-800 active:scale-95 border border-slate-700 text-slate-200 text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition shadow-md"
-            >
-              ⏸️ Pausa [Esc]
-            </button>
-          </div>
+      {/* Floating Action Buttons for Touch / Mobile Screens */}
+      <div className="absolute inset-0 pointer-events-none p-4 flex flex-col justify-between">
+        <div className="flex justify-end pointer-events-auto">
+          <button
+            onClick={() => {
+              sound.click();
+              propsRef.current.onPause();
+            }}
+            className="bg-slate-900/85 hover:bg-slate-800 active:scale-95 border border-slate-700 text-slate-200 text-xs font-mono font-bold px-3 py-1.5 rounded-lg cursor-pointer transition shadow-lg"
+          >
+            ⏸️ Pausa [Esc]
+          </button>
         </div>
 
-        {/* Interaction Banner if near house */}
-        {hudData.nearHouse && (
-          <div className="self-center pointer-events-auto animate-bounce">
-            <button
-              onClick={interact}
-              className={`px-6 py-3 rounded-xl font-bold font-mono text-base md:text-lg border-2 shadow-2xl transition cursor-pointer ${
-                hudData.keys >= 3
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-300'
-                  : 'bg-amber-600 hover:bg-amber-500 text-white border-amber-300'
-              }`}
-            >
-              {hudData.keys >= 3 ? '🚪 ¡ENTRAR A LA ARENA! [PULSA E]' : `🔒 Necesitas 3 Llaves (${hudData.keys}/3)`}
-            </button>
-          </div>
-        )}
-
-        {/* Touch Controls Overlay for Mobile / Tablet */}
+        {/* Bottom Actions for Mobile */}
         <div className="flex items-end justify-between pointer-events-none pb-2">
-          {/* Virtual Joystick Touch Area (Left) */}
-          <div
-            onTouchStart={handleJoystickStart}
-            onTouchMove={handleJoystickMove}
-            onTouchEnd={handleJoystickEnd}
-            className="w-32 h-32 md:w-40 md:h-40 rounded-full border-2 border-slate-700/60 bg-slate-900/40 pointer-events-auto flex items-center justify-center touch-none backdrop-blur-xs"
-          >
-            <div className="w-12 h-12 rounded-full bg-amber-500/50 border border-amber-300 pointer-events-none" />
+          {/* Virtual Joystick Visual Indicator */}
+          <div className="w-28 h-28 rounded-full border-2 border-slate-700/50 bg-slate-900/30 flex items-center justify-center pointer-events-none">
+            <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest text-center">
+              Arrastra<br />Moverse
+            </span>
           </div>
 
-          {/* Action Buttons Touch Area (Right) */}
-          <div className="flex flex-col items-end gap-2 pointer-events-auto">
-            {hudData.weaponCount > 1 && (
-              <button
-                onTouchStart={cycleWeapon}
-                onClick={cycleWeapon}
-                className="w-14 h-14 rounded-full bg-slate-900/80 border-2 border-amber-500/80 text-amber-300 font-bold text-xs flex flex-col items-center justify-center active:scale-90 shadow-lg cursor-pointer"
-              >
-                <span>🔫</span>
-                <span>Arma</span>
-              </button>
-            )}
+          {/* Quick Buttons */}
+          <div className="flex items-end gap-2.5 pointer-events-auto">
+            <button
+              onClick={() => {
+                const G = gameStateRef.current;
+                if (!G.P || !G.P.weapons || G.P.weapons.length < 2) return;
+                G.P.wep = (G.P.wep + 1) % G.P.weapons.length;
+                sound.click();
+              }}
+              className="w-14 h-14 rounded-full bg-slate-900/90 border-2 border-amber-500/80 text-amber-300 font-bold text-xs flex flex-col items-center justify-center active:scale-90 shadow-xl cursor-pointer"
+            >
+              <span>🔫</span>
+              <span className="text-[9px]">Arma [Q]</span>
+            </button>
 
             <button
-              onTouchStart={explode}
-              onClick={explode}
-              disabled={hudData.bombs <= 0}
-              className={`w-14 h-14 rounded-full border-2 font-bold text-xs flex flex-col items-center justify-center active:scale-90 shadow-lg cursor-pointer ${
-                hudData.bombs > 0
-                  ? 'bg-red-950/80 border-red-500 text-yellow-300'
-                  : 'bg-slate-900/40 border-slate-800 text-slate-600'
-              }`}
+              onClick={() => {
+                const G = gameStateRef.current;
+                if (G.nBombs > 0) {
+                  G.nBombs--;
+                  sound.bomb();
+                  for (const e of G.en) {
+                    if (e.hp > 0 && Math.hypot(e.x - G.P!.x, e.y - G.P!.y) < BOMB_CFG.r + e.r) {
+                      e.hp = 0;
+                    }
+                  }
+                  for (const b of G.ebul) {
+                    if (Math.hypot(b.x - G.P!.x, b.y - G.P!.y) < BOMB_CFG.r) b.l = 0;
+                  }
+                  G.blasts.push({ x: G.P!.x, y: G.P!.y, l: 0.5 });
+                  G.shake = 18;
+                }
+              }}
+              className="w-14 h-14 rounded-full bg-red-950/90 border-2 border-red-500 text-yellow-300 font-bold text-xs flex flex-col items-center justify-center active:scale-90 shadow-xl cursor-pointer"
             >
               <span>💣</span>
-              <span>{hudData.bombs}</span>
+              <span className="text-[9px]">Bomba [R]</span>
             </button>
 
             <button
-              onTouchStart={() => (gameStateRef.current.isShooting = true)}
-              onTouchEnd={() => (gameStateRef.current.isShooting = false)}
               onMouseDown={() => (gameStateRef.current.isShooting = true)}
               onMouseUp={() => (gameStateRef.current.isShooting = false)}
-              className="w-18 h-18 rounded-full bg-amber-600/90 active:bg-amber-500 border-2 border-amber-300 text-slate-950 font-black text-sm flex flex-col items-center justify-center shadow-2xl active:scale-90 cursor-pointer"
+              onTouchStart={(e) => {
+                e.preventDefault();
+                gameStateRef.current.isShooting = true;
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                gameStateRef.current.isShooting = false;
+              }}
+              className="w-18 h-18 rounded-full bg-amber-600 active:bg-amber-500 border-2 border-amber-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-2xl active:scale-90 cursor-pointer"
             >
               <span>DISPARO</span>
             </button>
