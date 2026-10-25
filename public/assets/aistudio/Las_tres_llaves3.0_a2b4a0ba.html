@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Las tres llaves</title>
+<style>
+:root{--bg:#f1efe8;--panel:#fffdf6;--fg:#1d2420;--ac:#c2410c;color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10150f;--panel:#1b221a;--fg:#e9efe2;--ac:#ffb020}}
+:root[data-theme="dark"]{--bg:#10150f;--panel:#1b221a;--fg:#e9efe2;--ac:#ffb020}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font-family:Georgia,"Times New Roman",serif;display:flex;align-items:center;justify-content:center}
+#wrap{position:relative;width:min(100vw,calc((100vh - 8px)*1.2));aspect-ratio:6/5}
+canvas{width:100%;height:100%;display:block;background:#000;cursor:crosshair}
+#ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,12,8,.72)}
+#pn{background:var(--panel);color:var(--fg);padding:28px 34px;max-width:78%;text-align:center;border:3px solid var(--ac);box-shadow:8px 8px 0 var(--ac)}
+#pn h1{margin:0 0 10px;font-size:clamp(22px,4.4vw,44px);letter-spacing:.5px}
+#pn p{margin:0 0 18px;line-height:1.5;font-size:clamp(13px,1.9vw,18px)}
+#pn button{font:inherit;font-weight:bold;font-size:clamp(14px,2vw,20px);padding:10px 22px;margin:4px;background:var(--ac);color:#111;border:2px solid #111;cursor:pointer}
+#pn button:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="1200" height="1000"></canvas><div id="ov"><div id="pn"></div></div></div>
+<script>
+/* ====== Las tres llaves — shooter top-down (Canvas 2D, sin dependencias) ======
+   Ejecución: guarda este archivo como index.html y ábrelo en un navegador moderno. */
+const C=document.getElementById('c'),X=C.getContext('2d'),VW=1200,VH=1000;
+// ---- Parámetros de balance ----
+const CFG={mapW:4000,mapH:3000,pSpeed:260,pHp:100,pFire:.15,pBulletSpd:720,pDmg:20,inv:.8,
+ chaser:{hp:40,spd:125,dmg:10,r:16},shooter:{hp:30,spd:95,dmg:8,r:16,fire:1.7,bspd:300},bat:{hp:15,spd:235,dmg:6,r:11},brute:{hp:170,spd:70,dmg:25,r:28},turret:{hp:90,spd:0,dmg:9,r:20,fire:2.1,bspd:320},
+ dropHeal:.18,healAmt:20,bossHp:700,bossContact:20,shooterChance:.35};
+// ---- Las 3 fases: apariencia, enemigos, peligros y jefe propios ----
+const LV=[
+{name:'Fase 1: El Bosque',tip:'Bosque: encuentra las 3 llaves. Sigue la flecha dorada.',boss:'GUARDIÁN DE LA CASA',W:4000,H:3000,spd:1,cap:8,sp:2.2,nobs:110,nhaz:0,tur:0,kd:1200,dark:0,embers:0,
+ mix:[['chaser',65],['shooter',35]],zones:['#2b5a34','#7a6a3c','#2f4a66','#4c3a5a'],ar:['#3a1d24','#2d161c','#ff5a4d'],
+ pal:{r:['#7d838a','#a3a9b0'],c:['#8a5a2b','#4a2f14'],t:['#1f7a3a','#2da24f'],roof:'#a8321f',wall:'#c9b48a'}},
+{name:'Fase 2: La Cripta Oscura',tip:'Cripta: casi no ves. Busca el brillo dorado.',boss:'ESPECTRO',W:3000,H:2400,spd:1.12,cap:10,sp:1.7,nobs:90,nhaz:0,tur:0,kd:1000,dark:1,embers:0,
+ mix:[['bat',45],['shooter',30],['chaser',25]],zones:['#1c2438','#22304a','#2a2340','#182030'],ar:['#161a2e','#1d2240','#7be0ff'],
+ pal:{r:['#4b5670','#6b7896'],c:['#3a3f5a','#232640'],t:['#3d2a5c','#5b3f8c'],roof:'#3d3a66',wall:'#8a93b5'}},
+{name:'Fase 3: Fortaleza de Lava',tip:'Fortaleza: la lava quema. Evita torretas y brutos.',boss:'COLOSO DE MAGMA',W:3600,H:2800,spd:.92,cap:9,sp:2.6,nobs:80,nhaz:16,tur:9,kd:1200,dark:0,embers:1,
+ mix:[['chaser',40],['brute',30],['shooter',30]],zones:['#3a1a14','#4d2216','#2b1a1a','#5a2a12'],ar:['#2a0f0a','#3a160c','#ffb020'],
+ pal:{r:['#2b2b30','#ff6a2a'],c:['#55332a','#2a1510'],t:['#2a2a2e','#4a4a52'],roof:'#2b2b30',wall:'#6b4a3a'}}];
+const cur=()=>LV[Math.min(level,3)-1],BC=[['#6a2a9a','#c2183a'],['#7be0ff','#b06bff'],['#ff7a1a','#ffd23f']];
+let haz=[],nTur=0,bombs=[],blasts=[],nBombs=0;
+// ---- Bombas: siempre hay 2 en el mapa; R detona una (radio ~3,75 cuerpos, jefe -30) ----
+const BOMB={r:120,bossDmg:30,pick:32,onMap:2};
+function spawnBomb(){for(let i=0;i<200;i++){const x=R(80,W-80),y=R(80,H-80),q={x,y};
+  if(D(q,P)>(mode==='world'?600:250)&&!inObs(x,y,40)&&!haz.some(z=>D(z,q)<z.r+30)&&(mode==='world'||y>300)&&!bombs.some(b=>D(b,q)<400)){bombs.push(q);return}}}
+function fillBombs(){while(bombs.length<BOMB.onMap){const n=bombs.length;spawnBomb();if(bombs.length===n)break}}
+function explode(){if(S!=='play'||!P||nBombs<=0||winT>0)return;nBombs--;
+ for(const e of en)if(e.hp>0&&D(e,P)<BOMB.r+e.r){e.hp=0;killEn(e)}   // mata a los enemigos cercanos
+ for(const b of ebul)if(D(b,P)<BOMB.r)b.l=0;                          // limpia balas enemigas
+ if(boss&&D(boss,P)<BOMB.r+boss.r){boss.hp-=BOMB.bossDmg;burst(boss.x,boss.y,'#ffd23f',24)}
+ blasts.push({x:P.x,y:P.y,l:.5});burst(P.x,P.y,'#ff9a3d',40);shake=22;   // el jugador es inmune
+ snd(70,.6,'sawtooth',.16,-40);snd(220,.35,'square',.1,-160);say('¡Bomba! Te quedan '+nBombs,1.5)}
+// ---- Sprite del protagonista (PNG incrustado) ----
+const SPR=new Image();SPR.src='data:image/png;base64,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';
+// ---- Estado ----
+let S='menu',mode='world',W=4000,H=3000,level=1,P,bullets,ebul,en,drops,pickups,parts,keys,obs,house,boss,
+ cam={x:0,y:0},t=0,spawnT=0,shake=0,flash=0,fade=0,winT=0,got=0,txt='',txtT=0,mouse={x:600,y:500},down=false,K={};
+const R=(a,b)=>a+Math.random()*(b-a),D=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+// ---- Audio sintetizado ----
+let AC;function snd(f,d,type='square',v=.07,sl=0){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain(),n=AC.currentTime;o.type=type;o.frequency.setValueAtTime(f,n);if(sl)o.frequency.exponentialRampToValueAtTime(Math.max(30,f+sl),n+d);g.gain.setValueAtTime(v,n);g.gain.exponentialRampToValueAtTime(.0001,n+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(n+d)}catch(e){}}
+const SFX={shoot:()=>snd(720,.08,'square',.035,-450),key:()=>{snd(660,.15,'triangle',.1);setTimeout(()=>snd(990,.25,'triangle',.1),120)},hurt:()=>snd(160,.25,'sawtooth',.1,-90),kill:()=>snd(320,.15,'triangle',.08,-220),enter:()=>snd(180,.7,'sine',.12,500),
+ pick:()=>{snd(440,.1,'square',.09);setTimeout(()=>snd(660,.12,'square',.09),90);setTimeout(()=>snd(880,.2,'triangle',.09),190)},
+ bossDie:()=>[0,1,2,3,4].forEach(i=>setTimeout(()=>snd(400-i*60,.4,'sawtooth',.1,-150),i*180)),heal:()=>snd(520,.2,'sine',.08,300)};
+// ---- Armas ----
+// n: número de proyectiles por disparo · spread: separación angular entre ellos
+// La escopeta dispara 2 postas separadas 20°, pero con la MISMA intensidad (daño,
+// velocidad, sonido) y la MISMA frecuencia de disparo que la pistola.
+const WEAPONS={
+ pistol:{name:'Pistola',fire:.15,spd:720,dmg:20,n:1,spread:0,life:1.1,color:'#ffe66b',r:5,sfx:()=>SFX.shoot()},
+ shotgun:{name:'Escopeta',fire:.15,spd:720,dmg:20,n:2,spread:20*Math.PI/180,life:1.1,color:'#ffb020',r:5,sfx:()=>SFX.shoot()}
+};
+const say=(s,d=3)=>{txt=s;txtT=d};
+// ---- Generación del mapa ----
+function inObs(x,y,m){return obs.some(k=>x>k.x-m&&x<k.x+k.w+m&&y>k.y-m&&y<k.y+k.h+m)}
+function genWorld(){
+ const L=cur();mode='world';W=L.W;H=L.H;obs=[];haz=[];got=0;nTur=0;
+ house={x:W/2-85,y:H/2-65,w:170,h:130};obs.push({x:house.x,y:house.y,w:170,h:130,t:3});
+ const st={x:300,y:H-300},hc={x:W/2,y:H/2};keys=[];
+ while(keys.length<3){const k={x:R(200,W-200),y:R(200,H-200),got:0};
+  if(D(k,st)>L.kd&&D(k,hc)>500&&keys.every(o=>D(o,k)>1000))keys.push(k)}
+ for(let i=0;i<L.nhaz;i++){const z={x:R(200,W-200),y:R(200,H-200),r:R(90,170)};
+  if(D(z,st)>z.r+400&&D(z,hc)>z.r+300&&keys.every(k=>D(k,z)>z.r+90))haz.push(z)}
+ for(let i=0;i<L.nobs;i++){const w=R(60,130),h=R(60,130),o={x:R(60,W-200),y:R(60,H-200),w,h,t:i%3},c={x:o.x+w/2,y:o.y+h/2};
+  if(D(c,st)>260&&D(c,hc)>330&&keys.every(k=>D(c,k)>170))obs.push(o)}
+ // --- Arma especial: la escopeta de dispersión (solo si aún no la tienes) ---
+ pickups=[];
+ if(!P||!P.weapons||!P.weapons.includes('shotgun')){
+  for(let i=0;i<400;i++){
+   const q={x:R(300,W-300),y:R(300,H-300)};
+   if(D(q,st)>950&&D(q,hc)>420&&!inObs(q.x,q.y,45)&&!haz.some(z=>D(z,q)<z.r+70)&&keys.every(k=>D(k,q)>220)){
+    pickups.push({x:q.x,y:q.y,type:'shotgun'});break}}}
+ // --- Jugador (conserva armas entre fases) ---
+ const pw=P&&P.weapons?P.weapons.slice():['pistol'],pi=P&&P.wep!==undefined?P.wep:0;
+ P={x:st.x,y:st.y,r:16,hp:P?P.hp:CFG.pHp,cd:0,inv:0,ang:0,weapons:pw,wep:Math.min(pi,pw.length-1)};
+ bullets=[];ebul=[];en=[];drops=[];parts=[];boss=null;cam.x=P.x-VW/2;cam.y=P.y-VH/2;bombs=[];blasts=[];fillBombs();
+ for(let i=0;i<L.tur*4&&nTur<L.tur;i++){const q={x:R(200,W-200),y:R(200,H-200)};
+  if(D(q,st)>700&&D(q,hc)>250&&!inObs(q.x,q.y,40)&&!haz.some(z=>D(z,q)<z.r+30)){spawnEn('turret',q.x,q.y);nTur++}}
+}
+function newGame(lv,keep){level=lv;if(!keep)nBombs=0;t=0;spawnT=2;const hp=keep&&P?Math.min(CFG.pHp,P.hp+40):CFG.pHp;
+ P=keep&&P?{hp,weapons:P.weapons.slice(),wep:P.wep}:null;genWorld();P.hp=hp;S='play';ov(0);say(cur().tip,5)}
+function enterArena(){
+ SFX.enter();mode='arena';W=1200;H=1000;fade=1;
+ obs=[[300,300],[800,300],[300,650],[800,650]].map(p=>({x:p[0],y:p[1],w:100,h:100,t:0}));
+ en=[];ebul=[];bullets=[];drops=[];pickups=[];haz=cur().nhaz?[{x:210,y:790,r:75},{x:990,y:790,r:75},{x:600,y:520,r:60}]:[];P.x=600;P.y=900;cam.x=0;cam.y=0;bombs=[];blasts=[];fillBombs();
+ const mx=CFG.bossHp*(1+.3*(level-1));
+ boss={kind:Math.min(level,3),x:600,y:200,r:[54,46,72][Math.min(level,3)-1],hp:mx,max:mx,t:0,p2:0,state:'idle',a1:2,a2:3,a3:6,a4:4,wT:0,dT:0,vx:0,vy:0,dead:0};
+ say('¡El guardián despierta! No hay salida.',3);
+}
+// ---- Colisiones ----
+function push(o,r){for(const k of obs){const cx=Math.max(k.x,Math.min(o.x,k.x+k.w)),cy=Math.max(k.y,Math.min(o.y,k.y+k.h)),dx=o.x-cx,dy=o.y-cy,d=Math.hypot(dx,dy);
+ if(d<r){if(d>0){o.x+=dx/d*(r-d);o.y+=dy/d*(r-d)}else o.x+=r}}
+ o.x=Math.max(r,Math.min(W-r,o.x));o.y=Math.max(r,Math.min(H-r,o.y))}
+const hitObs=b=>obs.some(k=>b.x>k.x&&b.x<k.x+k.w&&b.y>k.y&&b.y<k.y+k.h)||b.x<0||b.y<0||b.x>W||b.y>H;
+function burst(x,y,col,n=8){for(let i=0;i<n;i++){const a=R(0,6.28),s=R(60,240);parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:R(.3,.7),c:col})}}
+function hurt(d){if(P.inv>0||S!=='play')return;P.hp-=d;P.inv=CFG.inv;shake=10;flash=.35;SFX.hurt();
+ if(P.hp<=0)die()}
+function die(){if(1){P.hp=0;S='over';SFX.bossDie();show('Has caído','El mapa sigue ahí. Inténtalo de nuevo.',[['Reintentar',()=>newGame(level,0)]])}}
+// ---- Armas del jugador ----
+function fire(){
+ const w=WEAPONS[P.weapons[P.wep]]||WEAPONS.pistol;
+ P.cd=w.fire;
+ for(let i=0;i<w.n;i++){
+  // Dos postas separadas 20° (una a -10° y otra a +10° respecto a la mira)
+  const a=P.ang+(w.n>1?(i-(w.n-1)/2)*w.spread:0);
+  bullets.push({x:P.x+Math.cos(a)*22,y:P.y+Math.sin(a)*22,vx:Math.cos(a)*w.spd,vy:Math.sin(a)*w.spd,l:w.life,dmg:w.dmg,c:w.color,r:w.r});
+ }
+ w.sfx();
+}
+function addWeapon(type){
+ if(!P.weapons.includes(type))P.weapons.push(type);
+ P.wep=P.weapons.indexOf(type);
+ SFX.pick();burst(P.x,P.y,'#ffb020',22);
+ say('¡'+WEAPONS[type].name+' de dispersión! Pulsa Q (o 1/2) para cambiar de arma',4.5);
+}
+function cycleWeapon(){if(S!=='play'||!P||!P.weapons||P.weapons.length<2)return;
+ P.wep=(P.wep+1)%P.weapons.length;P.cd=Math.max(P.cd,.15);announceWeapon()}
+function pickWeapon(i){if(S!=='play'||!P||!P.weapons||i>=P.weapons.length||i===P.wep)return;
+ P.wep=i;P.cd=Math.max(P.cd,.15);announceWeapon()}
+function announceWeapon(){say('Arma: '+WEAPONS[P.weapons[P.wep]].name,1.2);snd(560,.08,'square',.05,140)}
+// ---- Enemigos ----
+function spawnEn(type,x,y){const c=CFG[type],sc=1+.12*(level-1)+.12*got;
+ en.push({type,x,y,r:c.r,hp:c.hp*sc,max:c.hp*sc,cd:R(.5,1.5),dir:Math.random()<.5?1:-1})}
+function trySpawn(dt){const L=cur(),cap=Math.min(26,L.cap+got*3)+nTur;spawnT-=dt;if(spawnT>0||en.length>=cap)return;
+ spawnT=Math.max(.5,L.sp-got*.3-t/300);
+ const a=R(0,6.28),x=P.x+Math.cos(a)*820,y=P.y+Math.sin(a)*820;
+ if(x<40||y<40||x>W-40||y>H-40||inObs(x,y,30))return;
+ let r=Math.random()*L.mix.reduce((u,m)=>u+m[1],0),ty=L.mix[0][0];for(const m of L.mix){if((r-=m[1])<=0){ty=m[0];break}}
+ if(ty==='bat')for(let i=0;i<3;i++)spawnEn('bat',x+R(-40,40),y+R(-40,40));else spawnEn(ty,x,y)}
+function killEn(e){SFX.kill();burst(e.x,e.y,e.type==='chaser'?'#ff5a4d':'#c56bff',12);if(Math.random()<CFG.dropHeal)drops.push({x:e.x,y:e.y})}
+function eShoot(x,y,a,s,d){ebul.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,dmg:d,l:3})}
+// ---- Jefe ----
+// Espectro (fase 2): se teletransporta y dispara abanicos
+function k2(b,dt,ang,p2){if((b.a4-=dt)<=0){b.a4=p2?2.2:3.2;const a=R(0,6.28);b.x=Math.max(80,Math.min(1120,P.x+Math.cos(a)*300));b.y=Math.max(80,Math.min(920,P.y+Math.sin(a)*300));burst(b.x,b.y,'#9be7ff',16);snd(500,.3,'sine',.08,-300);
+  const q=Math.atan2(P.y-b.y,P.x-b.x);for(let i=-2;i<=2;i++)eShoot(b.x,b.y,q+i*.2,420,10)}
+ if((b.a2-=dt)<=0){b.a2=p2?1.8:3;for(let i=0;i<14;i++)eShoot(b.x,b.y,i/14*6.28+b.t,230,8)}
+ if(p2&&(b.a3-=dt)<=0){b.a3=5;if(en.length<7)for(let i=0;i<3;i++)spawnEn('bat',b.x+R(-60,60),b.y+R(-60,60))}}
+// Coloso (fase 3): lento, espirales de balas y brutos
+function k3(b,dt,ang,p2){b.x+=Math.cos(ang)*40*dt;b.y+=Math.sin(ang)*40*dt;
+ if((b.a1-=dt)<=0){b.a1=p2?.12:.18;b.sp=(b.sp||0)+.35;eShoot(b.x,b.y,b.sp,300,7);eShoot(b.x,b.y,b.sp+3.14,300,7);if(p2){eShoot(b.x,b.y,b.sp+1.57,300,7);eShoot(b.x,b.y,b.sp-1.57,300,7)}}
+ if((b.a3-=dt)<=0){b.a3=7;if(p2&&en.length<4)spawnEn('brute',b.x,b.y+90)}
+ if((b.a2-=dt)<=0){b.a2=4;for(let i=-3;i<=3;i++)eShoot(b.x,b.y,ang+i*.18,420,12)}}
+function bossUpdate(dt){const b=boss;b.t+=dt;
+ if(!b.p2&&b.hp<b.max/2){b.p2=1;say('¡El jefe se enfurece! Fase 2',2.5);snd(90,.6,'sawtooth',.12,200);shake=20}
+ const p2=b.p2,ang=Math.atan2(P.y-b.y,P.x-b.x);
+ if(b.kind===2)k2(b,dt,ang,p2);else if(b.kind===3)k3(b,dt,ang,p2);else if(b.state==='idle'){b.x+=(600+Math.sin(b.t*.8)*380-b.x)*dt*2;b.y+=(230+Math.sin(b.t*1.3)*70-b.y)*dt*2;
+  if((b.a1-=dt)<=0){b.a1=p2?.9:1.4;for(let i=-1;i<=1;i++)eShoot(b.x,b.y,ang+i*.26,380,10);snd(250,.12,'square',.05,-100)}
+  if((b.a2-=dt)<=0){b.a2=p2?2.2:3.6;const n=p2?18:12;for(let i=0;i<n;i++)eShoot(b.x,b.y,i/n*6.28+b.t,260,8);snd(200,.3,'sawtooth',.06,-80)}
+  if(p2){if((b.a3-=dt)<=0){b.a3=6;if(en.length<5){spawnEn('chaser',b.x-60,b.y+40);spawnEn('chaser',b.x+60,b.y+40)}}
+   if((b.a4-=dt)<=0){b.state='wind';b.wT=.6;b.vx=Math.cos(ang)*680;b.vy=Math.sin(ang)*680}}}
+ else if(b.state==='wind'){if((b.wT-=dt)<=0){b.state='dash';b.dT=.7;snd(120,.5,'sawtooth',.1,100)}}
+ else{b.x+=b.vx*dt;b.y+=b.vy*dt;b.x=Math.max(70,Math.min(1130,b.x));b.y=Math.max(70,Math.min(930,b.y));if((b.dT-=dt)<=0){b.state='idle';b.a4=4}}
+ if(D(b,P)<b.r+P.r)hurt(CFG.bossContact);
+ if(b.hp<=0){b.dead=1;burst(b.x,b.y,'#ffd23f',70);burst(b.x,b.y,'#ff5a4d',50);SFX.bossDie();en=[];ebul=[];winT=1.8;shake=30;say('¡Jefe derrotado!',3);boss=null}}
+// ---- Actualización ----
+function update(dt){
+ t+=dt;
+ // jugador
+ const mx=(K.d||K.arrowright?1:0)-(K.a||K.arrowleft?1:0),my=(K.s||K.arrowdown?1:0)-(K.w||K.arrowup?1:0),m=Math.hypot(mx,my)||1;
+ if(winT<=0){P.x+=mx/m*CFG.pSpeed*cur().spd*dt;P.y+=my/m*CFG.pSpeed*cur().spd*dt;push(P,P.r)}
+ P.ang=Math.atan2(mouse.y+cam.y-P.y,mouse.x+cam.x-P.x);P.cd-=dt;P.inv-=dt;
+ if((down||K[' '])&&P.cd<=0&&winT<=0)fire();
+
+ for(const z of haz)if(D(z,P)<z.r&&winT<=0){P.hp-=16*dt;flash=Math.max(flash,.12);if(Math.random()<dt*6)snd(110,.08,'sawtooth',.03)}
+ if(P.hp<=0&&S==='play')die();
+ if(cur().embers&&Math.random()<dt*25)parts.push({x:cam.x+R(0,VW),y:cam.y+VH,vx:R(-20,20),vy:-R(60,140),l:R(1,2),c:'#ff9a3d'});
+ // balas del jugador
+ for(const b of bullets){b.x+=b.vx*dt;b.y+=b.vy*dt;b.l-=dt;if(hitObs(b)){b.l=0;burst(b.x,b.y,'#ddd',3);continue}
+  for(const e of en)if(e.hp>0&&D(b,e)<e.r+5){e.hp-=(b.dmg||CFG.pDmg);b.l=0;burst(b.x,b.y,'#fff',4);if(e.hp<=0)killEn(e);break}
+  if(boss&&b.l>0&&D(b,boss)<boss.r+5){boss.hp-=(b.dmg||CFG.pDmg)*.6;b.l=0;burst(b.x,b.y,'#ffd23f',4)}}
+ bullets=bullets.filter(b=>b.l>0);
+ // enemigos
+ for(const e of en){const c=CFG[e.type],a=Math.atan2(P.y-e.y,P.x-e.x),d=D(e,P);let vx=0,vy=0;
+  if(e.type==='turret'){if((e.cd-=dt)<=0&&d<680){e.cd=c.fire;for(let i=-1;i<=1;i++)eShoot(e.x,e.y,a+i*.3,c.bspd,c.dmg);snd(220,.1,'square',.04,-80)}}
+  else if(e.type!=='shooter'){const w=e.type==='bat'?Math.sin(t*6+e.cd*9)*130:0;vx=Math.cos(a)*c.spd+Math.cos(a+1.57)*w;vy=Math.sin(a)*c.spd+Math.sin(a+1.57)*w;if(d<e.r+P.r)hurt(c.dmg)}
+  else{const s=d>420?1:d<280?-1:0;vx=Math.cos(a)*c.spd*s+Math.cos(a+1.57)*c.spd*.6*e.dir*(s?0:1);vy=Math.sin(a)*c.spd*s+Math.sin(a+1.57)*c.spd*.6*e.dir*(s?0:1);
+   if((e.cd-=dt)<=0&&d<700){e.cd=c.fire;eShoot(e.x,e.y,a,c.bspd,c.dmg)}}
+  e.x+=vx*dt;e.y+=vy*dt;push(e,e.r)}
+ en=en.filter(e=>e.hp>0);
+ // balas enemigas
+ for(const b of ebul){b.x+=b.vx*dt;b.y+=b.vy*dt;b.l-=dt;if(hitObs(b))b.l=0;else if(D(b,P)<P.r+5){b.l=0;hurt(b.dmg)}}
+ ebul=ebul.filter(b=>b.l>0);
+ // curas
+ drops=drops.filter(d=>{if(D(d,P)<30){P.hp=Math.min(CFG.pHp,P.hp+CFG.healAmt);SFX.heal();say('+'+CFG.healAmt+' de vida',1.2);return false}return true});
+
+ bombs=bombs.filter(b=>{if(D(b,P)<BOMB.pick){nBombs++;SFX.heal();say('Bomba recogida ('+nBombs+'). Pulsa R para detonarla',2.5);return false}return true});fillBombs();
+ for(const b of blasts)b.l-=dt;blasts=blasts.filter(b=>b.l>0);
+ if(mode==='world'){trySpawn(dt);
+  // recoger armas
+  pickups=pickups.filter(p=>{if(D(p,P)<36){addWeapon(p.type);return false}return true});
+  for(const k of keys)if(!k.got&&D(k,P)<32){k.got=1;got++;SFX.key();say(got<3?'Llave '+got+'/3 recogida':'¡Tienes las 3 llaves! Ve a la casa y pulsa E',3.5)}}
+ else if(boss)bossUpdate(dt);
+ if(winT>0&&(winT-=dt)<=0){S='win';if(level>=3)show('¡Juego completado!','Has derrotado a los tres jefes y superado las tres fases. Gracias por jugar.',[['Jugar de nuevo',()=>newGame(1,0)]]);else show(cur().name+' superada','Has derrotado al jefe. La siguiente fase es totalmente distinta.',[['Siguiente nivel',()=>newGame(level+1,1)],['Reiniciar',()=>newGame(1,0)]])}
+ // partículas, cámara, textos
+ for(const p of parts){p.x+=p.vx*dt;p.y+=p.vy*dt;p.l-=dt}parts=parts.filter(p=>p.l>0);
+ txtT-=dt;shake=Math.max(0,shake-dt*40);flash=Math.max(0,flash-dt);fade=Math.max(0,fade-dt);
+ const tx=Math.max(0,Math.min(W-VW,P.x-VW/2)),ty=Math.max(0,Math.min(H-VH,P.y-VH/2)),f=Math.min(1,dt*8);cam.x+=(tx-cam.x)*f;cam.y+=(ty-cam.y)*f}
+function interact(){if(S!=='play'||mode!=='world')return;const c={x:house.x+house.w/2,y:house.y+house.h/2};
+ if(D(P,c)>190)return;if(got<3){say('Necesitas 3 llaves ('+got+'/3)',2.5);snd(120,.2,'square',.08)}else enterArena()}
+// ---- Dibujo ----
+function draw(){
+ X.save();X.fillStyle='#000';X.fillRect(0,0,VW,VH);
+ if(!P){X.restore();return}
+ const sx=(Math.random()-.5)*shake,sy=(Math.random()-.5)*shake;X.translate(-Math.round(cam.x)+sx,-Math.round(cam.y)+sy);
+ if(mode==='world'){const Z=cur().zones;
+  for(let i=0;i<4;i++){X.fillStyle=Z[i];X.fillRect(i%2*W/2,(i>>1)*H/2,W/2,H/2)}
+  X.fillStyle='rgba(255,255,255,.07)';for(let x=Math.floor(cam.x/100)*100;x<cam.x+VW+100;x+=100)for(let y=Math.floor(cam.y/100)*100;y<cam.y+VH+100;y+=100)X.fillRect(x,y,4,4)}
+ else{for(let x=0;x<12;x++)for(let y=0;y<10;y++){X.fillStyle=(x+y)%2?cur().ar[0]:cur().ar[1];X.fillRect(x*100,y*100,100,100)}
+  X.strokeStyle=cur().ar[2];X.lineWidth=6;X.strokeRect(3,3,W-6,H-6)}
+
+ for(const z of haz){const g=X.createRadialGradient(z.x,z.y,z.r*.2,z.x,z.y,z.r);g.addColorStop(0,'#ffe36b');g.addColorStop(.6,'#ff7a1a');g.addColorStop(1,'#b3210d');X.fillStyle=g;X.globalAlpha=.85+Math.sin(t*3+z.x)*.1;X.beginPath();X.arc(z.x,z.y,z.r,0,6.28);X.fill();X.globalAlpha=1}
+ // obstáculos
+ for(const k of obs){if(k.x>cam.x+VW||k.y>cam.y+VH||k.x+k.w<cam.x||k.y+k.h<cam.y)continue;
+  if(k.t===0){X.fillStyle=cur().pal.r[0];X.fillRect(k.x,k.y,k.w,k.h);X.fillStyle=cur().pal.r[1];X.fillRect(k.x,k.y,k.w,8);X.fillRect(k.x,k.y,8,k.h)}
+  else if(k.t===1){X.fillStyle=cur().pal.c[0];X.fillRect(k.x,k.y,k.w,k.h);X.strokeStyle=cur().pal.c[1];X.lineWidth=5;X.strokeRect(k.x+3,k.y+3,k.w-6,k.h-6);X.beginPath();X.moveTo(k.x,k.y);X.lineTo(k.x+k.w,k.y+k.h);X.moveTo(k.x+k.w,k.y);X.lineTo(k.x,k.y+k.h);X.stroke()}
+  else if(k.t===2){X.fillStyle=cur().pal.c[1];X.fillRect(k.x+k.w/2-8,k.y+k.h/2,16,k.h/2);X.fillStyle=cur().pal.t[0];X.beginPath();X.arc(k.x+k.w/2,k.y+k.h/2,Math.min(k.w,k.h)/2+4,0,6.28);X.fill();X.fillStyle=cur().pal.t[1];X.beginPath();X.arc(k.x+k.w/2-8,k.y+k.h/2-8,Math.min(k.w,k.h)/4,0,6.28);X.fill()}}
+ if(mode==='world'){ // casa
+  const h=house,ok=got>=3;X.fillStyle=cur().pal.wall;X.fillRect(h.x,h.y,h.w,h.h);X.fillStyle=cur().pal.roof;X.beginPath();X.moveTo(h.x-14,h.y+34);X.lineTo(h.x+h.w/2,h.y-40);X.lineTo(h.x+h.w+14,h.y+34);X.fill();
+  X.fillStyle=ok?'#3ddc84':'#d63a2f';X.fillRect(h.x+h.w/2-18,h.y+h.h-60,36,60);X.fillStyle='#111';X.font='bold 16px monospace';X.textAlign='center';X.fillText(ok?'ABIERTA':'CERRADA',h.x+h.w/2,h.y+h.h+22);
+  for(const k of keys)if(!k.got){const y=k.y+Math.sin(t*4)*5;X.fillStyle='rgba(255,210,63,.25)';X.beginPath();X.arc(k.x,y,30,0,6.28);X.fill();X.strokeStyle='#ffd23f';X.fillStyle='#ffd23f';X.lineWidth=5;X.beginPath();X.arc(k.x-8,y,9,0,6.28);X.stroke();X.fillRect(k.x,y-2.5,22,5);X.fillRect(k.x+14,y,4,9);X.fillRect(k.x+20,y,4,6)}}
+ // armas en el suelo
+ for(const p of pickups){const yy=p.y+Math.sin(t*3)*4;
+  X.fillStyle='rgba(255,176,32,.20)';X.beginPath();X.arc(p.x,yy,34,0,6.28);X.fill();
+  X.strokeStyle='#ffb020';X.lineWidth=3;X.beginPath();X.arc(p.x,yy,25,0,6.28);X.stroke();
+  X.save();X.translate(p.x,yy);X.rotate(-.35);
+  X.fillStyle='#2b2b30';X.fillRect(-18,-3,32,6);X.fillRect(-4,2,9,9);
+  X.fillStyle='#8a5a2b';X.fillRect(-22,1,12,8);
+  X.fillStyle='#ffd23f';X.fillRect(12,-3,4,6);
+  X.restore();
+  X.fillStyle='#ffb020';X.font='bold 14px monospace';X.textAlign='center';X.fillText('ESC',p.x,yy+46);X.textAlign='left'}
+ for(const d of drops){X.fillStyle='#3ddc84';X.fillRect(d.x-4,d.y-12,8,24);X.fillRect(d.x-12,d.y-4,24,8)}
+ // enemigos
+ for(const e of en){X.fillStyle=e.type==='chaser'?'#e0483b':'#a04ee0';
+  if(e.type==='turret'){X.fillStyle='#555';X.fillRect(e.x-e.r,e.y-e.r,e.r*2,e.r*2);X.save();X.translate(e.x,e.y);X.rotate(Math.atan2(P.y-e.y,P.x-e.x));X.fillStyle='#ff6a2a';X.fillRect(0,-5,28,10);X.restore()}
+  else if(e.type==='bat'){X.fillStyle='#7a5cff';X.beginPath();X.arc(e.x,e.y,e.r,0,6.28);X.fill();const w=Math.sin(t*25+e.cd*9)*8;X.fillRect(e.x-24,e.y-4-w,16,5);X.fillRect(e.x+8,e.y-4-w,16,5);X.fillStyle='#fff';X.fillRect(e.x-5,e.y-3,3,3);X.fillRect(e.x+2,e.y-3,3,3)}
+  else if(e.type==='brute'){X.fillStyle='#c4551d';X.beginPath();X.arc(e.x,e.y,e.r,0,6.28);X.fill();X.fillStyle='#ffd23f';X.fillRect(e.x-e.r+2,e.y-e.r-4,8,12);X.fillRect(e.x+e.r-10,e.y-e.r-4,8,12);X.fillStyle='#111';X.fillRect(e.x-12,e.y-6,8,8);X.fillRect(e.x+4,e.y-6,8,8)}
+  else if(e.type==='chaser'){X.beginPath();X.arc(e.x,e.y,e.r,0,6.28);X.fill();X.fillStyle='#fff';X.fillRect(e.x-8,e.y-5,5,5);X.fillRect(e.x+3,e.y-5,5,5)}else{X.fillRect(e.x-e.r,e.y-e.r,e.r*2,e.r*2);X.fillStyle='#fff';X.fillRect(e.x-4,e.y-4,8,8)}
+  X.fillStyle='#000';X.fillRect(e.x-16,e.y-e.r-10,32,5);X.fillStyle='#3ddc84';X.fillRect(e.x-16,e.y-e.r-10,32*e.hp/e.max,5)}
+ if(boss){const b=boss;if(b.state==='wind'){X.strokeStyle='rgba(255,60,40,.6)';X.lineWidth=b.r*1.6;X.beginPath();X.moveTo(b.x,b.y);X.lineTo(b.x+b.vx*.7,b.y+b.vy*.7);X.stroke()}
+  X.fillStyle=BC[b.kind-1][b.p2?1:0];X.beginPath();X.arc(b.x,b.y,b.r,0,6.28);X.fill();X.strokeStyle='#ffd23f';X.lineWidth=5;X.stroke();
+  X.fillStyle='#ffd23f';X.fillRect(b.x-26,b.y-14,16,10);X.fillRect(b.x+10,b.y-14,16,10);X.fillStyle='#111';X.fillRect(b.x-22,b.y+14,44,8)}
+ // balas
+ for(const b of bullets){X.fillStyle=b.c||'#ffe66b';X.beginPath();X.arc(b.x,b.y,b.r||5,0,6.28);X.fill()}
+ X.fillStyle='#ff8a3d';for(const b of ebul){X.beginPath();X.arc(b.x,b.y,6,0,6.28);X.fill()}
+
+ for(const b of bombs){const yy=b.y+Math.sin(t*3+b.x)*3;X.fillStyle='rgba(255,60,40,'+(.18+.1*Math.sin(t*6))+')';X.beginPath();X.arc(b.x,yy,32,0,6.28);X.fill();X.fillStyle='#1a1a1f';X.beginPath();X.arc(b.x,yy,15,0,6.28);X.fill();X.strokeStyle='#888';X.lineWidth=3;X.stroke();X.fillStyle='#fff';X.fillRect(b.x-8,yy-9,5,5);X.strokeStyle='#c8a15a';X.beginPath();X.moveTo(b.x+4,yy-14);X.quadraticCurveTo(b.x+12,yy-24,b.x+18,yy-18);X.stroke();X.fillStyle=Math.floor(t*10)%2?'#ffd23f':'#ff5a2a';X.fillRect(b.x+16,yy-22,6,6)}
+ for(const b of blasts){const f=1-b.l/.5;X.fillStyle='rgba(255,190,70,'+(.5*(1-f))+')';X.beginPath();X.arc(b.x,b.y,BOMB.r*(.3+.7*f),0,6.28);X.fill();X.strokeStyle='rgba(255,120,30,'+(1-f)+')';X.lineWidth=8;X.beginPath();X.arc(b.x,b.y,BOMB.r*f+4,0,6.28);X.stroke()}
+ // jugador
+ if(S!=='over'&&(P.inv<=0||Math.floor(t*20)%2)){X.fillStyle='rgba(0,0,0,.3)';X.beginPath();X.ellipse(P.x,P.y+20,17,6,0,0,6.28);X.fill();
+  const fl=Math.cos(P.ang)>0;X.imageSmoothingEnabled=false;X.save();X.translate(P.x,P.y+21);if(fl)X.scale(-1,1);if(SPR.complete&&SPR.naturalWidth)X.drawImage(SPR,-SPR.width*.5,-SPR.height*.95,SPR.width,SPR.height);X.restore();
+  const sh=P.weapons[P.wep]==='shotgun';
+  X.save();X.translate(P.x,P.y-14);X.rotate(P.ang);X.fillStyle=sh?'#3a2a18':'#222';X.fillRect(10,-3,sh?30:22,sh?8:6);X.fillStyle='#ffd23f';X.fillRect(sh?36:28,-3,4,6);X.restore()}
+ for(const p of parts){X.globalAlpha=Math.min(1,p.l*2);X.fillStyle=p.c;X.fillRect(p.x-3,p.y-3,6,6)}X.globalAlpha=1;
+ X.restore();dark();hud()}
+function bar(x,y,w,h,f,c){X.fillStyle='rgba(0,0,0,.6)';X.fillRect(x-3,y-3,w+6,h+6);X.fillStyle=c;X.fillRect(x,y,w*Math.max(0,f),h)}
+function hud(){
+ if(!P||S==='menu')return;
+ X.textAlign='left';X.font='bold 20px monospace';bar(24,24,260,22,P.hp/CFG.pHp,P.hp>30?'#3ddc84':'#ff4d3d');X.fillStyle='#fff';X.fillText('VIDA '+Math.ceil(P.hp),32,42);
+ X.fillStyle='rgba(0,0,0,.6)';X.fillRect(21,62,200,34);X.fillStyle='#ffd23f';X.fillText('Llaves '+got+'/3   Nv '+level,30,86);
+ // panel de arma
+ const wn=(WEAPONS[P.weapons[P.wep]]||WEAPONS.pistol).name.toUpperCase();
+ X.fillStyle='rgba(0,0,0,.6)';X.fillRect(21,102,268,34);
+ X.fillStyle='#ffb020';X.fillText((P.weapons.length>1?'[Q] ':'')+'ARMA: '+wn,30,126);
+ X.fillStyle='rgba(0,0,0,.6)';X.fillRect(21,142,268,34);X.fillStyle='#ff6a4d';X.fillText('[R] BOMBAS: '+nBombs,30,166);
+ if(flash>0){X.fillStyle='rgba(255,0,0,'+flash*.6+')';X.fillRect(0,0,VW,VH)}
+ if(mode==='world'){
+  // minimapa: solo muestra casa, jugador, armas y llaves cercanas
+  const mw=220,mh=mw*H/W,mx=VW-mw-20,my=VH-mh-20,s=mw/W;X.fillStyle='rgba(8,12,8,.8)';X.fillRect(mx,my,mw,mh);X.strokeStyle='#fff';X.lineWidth=2;X.strokeRect(mx,my,mw,mh);
+  X.fillStyle='#d9c08a';X.fillRect(mx+house.x*s-3,my+house.y*s-3,9,9);
+  for(const p of pickups){X.fillStyle='#ffb020';X.fillRect(mx+p.x*s-3,my+p.y*s-3,7,7)}
+  for(const b of bombs){X.fillStyle='#ff5a4d';X.beginPath();X.arc(mx+b.x*s,my+b.y*s,3.5,0,6.28);X.fill()}
+  for(const k of keys)if(!k.got&&D(k,P)<1300){X.fillStyle='#ffd23f';X.fillText('?',mx+k.x*s-5,my+k.y*s+6)}
+  X.strokeStyle='rgba(255,255,255,.5)';X.strokeRect(mx+cam.x*s,my+cam.y*s,VW*s,VH*s);X.fillStyle='#2f9bff';X.fillRect(mx+P.x*s-3,my+P.y*s-3,7,7);
+  // brújula hacia el objetivo
+  const tg=got>=3?{x:house.x+house.w/2,y:house.y+house.h/2}:keys.filter(k=>!k.got).sort((a,b)=>D(a,P)-D(b,P))[0];
+  if(tg){const a=Math.atan2(tg.y-P.y,tg.x-P.x);X.save();X.translate(VW/2+Math.cos(a)*190,VH/2+Math.sin(a)*190);X.rotate(a);X.fillStyle=got>=3?'#3ddc84':'#ffd23f';X.strokeStyle='#000';X.lineWidth=3;X.beginPath();X.moveTo(24,0);X.lineTo(-14,-16);X.lineTo(-6,0);X.lineTo(-14,16);X.closePath();X.fill();X.stroke();X.restore()}
+  const c={x:house.x+house.w/2,y:house.y+house.h/2};if(D(P,c)<190){X.textAlign='center';X.fillStyle='#fff';X.font='bold 26px monospace';X.fillText('Pulsa E para entrar',VW/2,VH-60)}}
+ else if(boss){bar(300,VH-70,600,24,boss.hp/boss.max,boss.p2?'#e0183a':'#a04ee0');X.textAlign='center';X.fillStyle='#fff';X.font='bold 18px monospace';X.fillText(cur().boss+(boss.p2?' · FASE 2':''),VW/2,VH-78)}
+ if(txtT>0){X.textAlign='center';X.font='bold 28px monospace';const w=X.measureText(txt).width+40;X.fillStyle='rgba(0,0,0,.65)';X.fillRect(VW/2-w/2,120,w,50);X.fillStyle='#fff';X.fillText(txt,VW/2,155)}
+ if(fade>0){X.fillStyle='rgba(255,255,255,'+fade+')';X.fillRect(0,0,VW,VH)}}
+function dark(){if(!P||!cur().dark)return;const px=P.x-cam.x,py=P.y-cam.y-10,r=mode==='arena'?520:250,g=X.createRadialGradient(px,py,r*.35,px,py,r*1.7);g.addColorStop(0,'rgba(2,3,12,0)');g.addColorStop(1,'rgba(2,3,12,.96)');X.fillStyle=g;X.fillRect(0,0,VW,VH);
+ if(mode==='world')for(const k of keys)if(!k.got&&D(k,P)<750){X.fillStyle='rgba(255,210,63,.35)';X.beginPath();X.arc(k.x-cam.x,k.y-cam.y,24+Math.sin(t*5)*4,0,6.28);X.fill()}
+ if(mode==='world')for(const p of pickups)if(D(p,P)<900){X.fillStyle='rgba(255,176,32,.35)';X.beginPath();X.arc(p.x-cam.x,p.y-cam.y,22+Math.sin(t*5)*4,0,6.28);X.fill()}
+ if(mode==='world')for(const b of bombs)if(D(b,P)<700){X.fillStyle='rgba(255,70,50,.35)';X.beginPath();X.arc(b.x-cam.x,b.y-cam.y,22+Math.sin(t*5)*4,0,6.28);X.fill()}}
+// ---- Interfaz (menús) ----
+const OV=document.getElementById('ov'),PN=document.getElementById('pn');
+function ov(v){OV.style.display=v?'flex':'none'}
+function show(h,p,btns){PN.innerHTML='<h1></h1><p></p><div></div>';PN.children[0].textContent=h;PN.children[1].textContent=p;
+ btns.forEach(([l,f])=>{const b=document.createElement('button');b.textContent=l;b.onclick=f;PN.children[2].appendChild(b)});ov(1);PN.querySelector('button').focus()}
+// ---- Entrada ----
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();K[k]=1;
+ if(k==='e'&&!e.repeat)interact();
+ if(k==='q'&&!e.repeat)cycleWeapon();
+ if(k==='r'&&!e.repeat)explode();
+ if((k==='1'||k==='2')&&!e.repeat)pickWeapon(parseInt(k,10)-1)});
+addEventListener('keyup',e=>K[e.key.toLowerCase()]=0);
+addEventListener('blur',()=>{K={};down=false});
+C.addEventListener('mousemove',e=>{const r=C.getBoundingClientRect();mouse.x=(e.clientX-r.left)*VW/r.width;mouse.y=(e.clientY-r.top)*VH/r.height});
+C.addEventListener('mousedown',e=>{if(e.button===0)down=true});addEventListener('mouseup',()=>down=false);
+C.addEventListener('contextmenu',e=>e.preventDefault());
+C.addEventListener('wheel',e=>{e.preventDefault();cycleWeapon()},{passive:false});
+// ---- Bucle principal con delta time ----
+let last=0;function loop(ts){const dt=Math.min(.05,(ts-last)/1000||0);last=ts;if(S==='play'||S==='win')if(S==='play')update(dt);draw();requestAnimationFrame(loop)}
+newGame(1,0);S='menu';
+show('Las tres llaves','Tres fases muy distintas: bosque, cripta oscura y fortaleza de lava. En cada una encuentra 3 llaves, abre la casa y derrota al jefe. Busca la ESCOPETA DE DISPERSIÓN en el mapa: dispara dos postas separadas 20°, con la misma potencia y cadencia que la pistola. WASD o flechas: moverse · ratón: apuntar · clic o espacio: disparar · Q o 1/2: cambiar de arma · rueda del ratón: cambiar de arma · E: interactuar · Q: cambiar de arma · R: bomba.',[['Jugar',()=>newGame(1,0)]]);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

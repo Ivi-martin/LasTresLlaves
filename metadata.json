@@ -1,0 +1,6 @@
+{
+  "name": "Las Tres Llaves: Edición Definitiva",
+  "description": "Juego de acción y aventura con progresión por niveles, recompensas diarias, tablas globales, desafíos semanales, avatares personalizables, modo offline y alto rendimiento.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
