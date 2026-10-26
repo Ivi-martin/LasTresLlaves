@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { EquippedCosmetics, PlayerStats } from '../types/game';
 import { sound } from '../utils/audio';
 import { StorageManager, DEFAULT_SKINS, DEFAULT_HATS } from '../utils/storage';
+import { Title3DBackdrop } from './Title3DBackdrop';
 
 interface TitleScreenProps {
   stats: PlayerStats;
@@ -55,6 +56,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-between p-6 md:p-10 bg-[#0e130f] select-none overflow-hidden">
+      {/* 3D Atmospheric Live World Backdrop */}
+      <Title3DBackdrop />
+
       {/* Ambient Animated Background Grid & Particles */}
       <div className="absolute inset-0 pointer-events-none opacity-20 bg-[radial-gradient(#c2410c_1px,transparent_1px)] [background-size:24px_24px]" />
       <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-[#0e130f] via-transparent to-[#162016]/40" />
@@ -63,17 +67,16 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       <div className="relative z-10 w-full max-w-5xl flex items-center justify-between">
         {/* Player Profile Preview */}
         <div className="flex items-center gap-3 bg-black/60 border border-amber-600/40 rounded-xl p-2 px-3.5 backdrop-blur-xs shadow-lg">
-          <div
-            className="w-10 h-10 rounded-lg border border-amber-500/50 flex items-center justify-center text-lg shadow-md shrink-0"
-            style={{ backgroundColor: currentSkin.secondaryColor }}
-          >
-            {currentHat?.drawType === 'crown' ? '👑' : currentHat?.drawType === 'horns' ? '🪖' : '🤠'}
-          </div>
+          <img
+            src="/assets/aistudio/6ak9y_feb79eab.jpg"
+            alt="Martín"
+            className="w-11 h-11 rounded-lg border-2 border-amber-500/60 object-cover object-top shadow-md shrink-0 bg-slate-800"
+          />
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-amber-300">{StorageManager.getPlayerName()}</span>
-              <span className="text-[10px] bg-purple-900/60 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 rounded font-mono font-bold">
-                Nv. {stats.level}
+              <span className="text-sm font-bold text-amber-300">Martín</span>
+              <span className="text-[10px] bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 px-1.5 py-0.5 rounded font-mono font-bold">
+                Explorador Nv. {stats.level}
               </span>
             </div>
             {/* XP progress bar */}
@@ -91,9 +94,19 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </div>
         </div>
 
-        {/* Currency & Network Status */}
-        <div className="flex items-center gap-3">
-          <div className="bg-black/60 border border-amber-500/40 rounded-xl px-3.5 py-2 text-sm font-mono text-amber-300 flex items-center gap-1.5 shadow-lg">
+        {/* Currency & Network Status & Download Button */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <a
+            href="/LasTresLlaves_3D_Actualizado.zip"
+            download="LasTresLlaves_3D_Actualizado.zip"
+            className="bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/60 text-amber-300 px-3 py-2 rounded-xl text-xs font-bold font-mono flex items-center gap-1.5 shadow-lg transition active:scale-95"
+            title="Descargar código actualizado para tu GitHub"
+          >
+            <span>📥</span>
+            <span className="hidden sm:inline">Descargar ZIP</span>
+          </a>
+
+          <div className="bg-black/60 border border-amber-500/40 rounded-xl px-3 py-2 text-sm font-mono text-amber-300 flex items-center gap-1.5 shadow-lg">
             <span>🪙</span>
             <span className="font-extrabold">{stats.gold.toLocaleString()}</span>
           </div>
@@ -137,18 +150,18 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               y="52"
               textAnchor="middle"
               className="font-serif font-black tracking-widest fill-[url(#goldGrad)]"
-              style={{ fontSize: '38px', letterSpacing: '4px' }}
+              style={{ fontSize: '34px', letterSpacing: '3px' }}
             >
-              LAS TRES LLAVES
+              LAS TRES LLAVES 3D
             </text>
             <text
               x="160"
               y="74"
               textAnchor="middle"
               className="font-mono font-bold tracking-widest fill-amber-200/80"
-              style={{ fontSize: '12px', letterSpacing: '6px' }}
+              style={{ fontSize: '11px', letterSpacing: '5px' }}
             >
-              EDICIÓN DEFINITIVA
+              ACCIÓN Y SUPERVIVENCIA 3D
             </text>
           </svg>
         </div>

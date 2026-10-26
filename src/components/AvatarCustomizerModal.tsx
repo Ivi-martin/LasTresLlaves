@@ -86,31 +86,76 @@ export const AvatarCustomizerModal: React.FC<AvatarCustomizerModalProps> = ({
       const bob = Math.sin(t * 2) * 3;
       const spriteY = 190 + bob;
 
-      // Draw stylized player character
+      // Draw stylized player character (Martín)
       ctx.save();
       ctx.translate(120, spriteY);
 
-      // Body / Cloak
+      // Boots
+      ctx.fillStyle = '#1b1c1e';
+      ctx.fillRect(-15, -16, 12, 18);
+      ctx.fillRect(3, -16, 12, 18);
+      ctx.fillStyle = '#111213';
+      ctx.fillRect(-16, -2, 14, 4);
+      ctx.fillRect(2, -2, 14, 4);
+
+      // Pants (Camo green)
+      ctx.fillStyle = '#55633e';
+      ctx.fillRect(-15, -34, 12, 20);
+      ctx.fillRect(3, -34, 12, 20);
+      // Cargo pockets on pants
+      ctx.fillStyle = '#445133';
+      ctx.fillRect(-17, -30, 4, 12);
+      ctx.fillRect(13, -30, 4, 12);
+
+      // Torso / Camo Jacket
       const skin = DEFAULT_SKINS.find((s) => s.id === currentEquipped.skinId) || DEFAULT_SKINS[0];
-      ctx.fillStyle = skin.secondaryColor;
-      ctx.fillRect(-14, -58, 28, 48);
+      ctx.fillStyle = skin.primaryColor || '#55633e';
+      ctx.fillRect(-16, -64, 32, 32);
 
-      ctx.fillStyle = skin.primaryColor;
-      ctx.beginPath();
-      ctx.arc(0, -66, 15, 0, Math.PI * 2);
-      ctx.fill();
+      // Cargo pockets on jacket
+      ctx.fillStyle = skin.secondaryColor || '#445133';
+      ctx.fillRect(-13, -60, 10, 10);
+      ctx.fillRect(3, -60, 10, 10);
+      ctx.fillRect(-13, -46, 10, 10);
+      ctx.fillRect(3, -46, 10, 10);
 
-      // Eyes
+      // Collar lapels
+      ctx.fillStyle = '#38432a';
+      ctx.fillRect(-5, -64, 10, 6);
+
+      // Head & Peach Skin
+      ctx.fillStyle = '#f5cbb0';
+      ctx.fillRect(-16, -92, 32, 28);
+
+      // Anime Eyes with specular gleam
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(-6, -70, 4, 4);
-      ctx.fillRect(3, -70, 4, 4);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(-5, -69, 2, 2);
-      ctx.fillRect(4, -69, 2, 2);
+      ctx.fillRect(-11, -84, 8, 8);
+      ctx.fillRect(3, -84, 8, 8);
 
-      // Hat
+      ctx.fillStyle = '#382115';
+      ctx.fillRect(-10, -84, 6, 7);
+      ctx.fillRect(4, -84, 6, 7);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-10, -84, 2.5, 2.5);
+      ctx.fillRect(4, -84, 2.5, 2.5);
+
+      // Eyebrows
+      ctx.fillStyle = '#27170e';
+      ctx.fillRect(-11, -87, 8, 2);
+      ctx.fillRect(3, -87, 8, 2);
+
+      // Spiky Voxel Hair (Martín)
       const hat = DEFAULT_HATS.find((h) => h.id === currentEquipped.hatId);
-      if (hat && hat.drawType !== 'none') {
+      if (!hat || hat.drawType === 'none') {
+        ctx.fillStyle = '#463223';
+        ctx.fillRect(-18, -102, 36, 14);
+        ctx.fillRect(-8, -108, 18, 8);
+        ctx.fillStyle = '#5c412e';
+        ctx.fillRect(-14, -94, 8, 10);
+        ctx.fillRect(6, -94, 10, 10);
+        ctx.fillRect(-2, -106, 8, 6);
+      } else {
         const headY = -82;
         if (hat.drawType === 'crown') {
           ctx.fillStyle = '#ffd23f';

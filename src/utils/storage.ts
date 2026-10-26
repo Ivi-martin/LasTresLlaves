@@ -26,11 +26,11 @@ const STORAGE_KEYS = {
 export const DEFAULT_SKINS: AvatarSkin[] = [
   {
     id: 'classic',
-    name: 'Aventurero Clásico',
-    description: 'El intrépido cazador de secretos y llaves sagradas.',
-    primaryColor: '#c2410c',
-    secondaryColor: '#8a5a2b',
-    tintRgba: 'rgba(255, 255, 255, 0)',
+    name: 'Martín (Explorador Militar)',
+    description: 'Joven intrépido con uniforme militar de camuflaje digital, cabello castaño y botas tácticas.',
+    primaryColor: '#55633e',
+    secondaryColor: '#3e4a2e',
+    tintRgba: 'rgba(85, 99, 62, 0.45)',
     unlocked: true,
     unlockRequirement: 'Disponible por defecto',
   },
@@ -279,7 +279,7 @@ export const INITIAL_STATS: PlayerStats = {
 
 export const INITIAL_EQUIPPED: EquippedCosmetics = {
   skinId: 'classic',
-  hatId: 'explorer_fedora',
+  hatId: 'none',
   auraId: 'none',
   weaponSkinId: 'default_metal',
 };
@@ -668,11 +668,11 @@ export const StorageManager = {
   },
 
   getPlayerName(): string {
-    return localStorage.getItem(STORAGE_KEYS.PLAYER_NAME) || 'Jugador 1';
+    return localStorage.getItem(STORAGE_KEYS.PLAYER_NAME) || 'Martín';
   },
 
   setPlayerName(name: string) {
-    localStorage.setItem(STORAGE_KEYS.PLAYER_NAME, name.trim().slice(0, 15) || 'Jugador 1');
+    localStorage.setItem(STORAGE_KEYS.PLAYER_NAME, name.trim().slice(0, 15) || 'Martín');
   },
 
   getSettings(): GameSettings {
