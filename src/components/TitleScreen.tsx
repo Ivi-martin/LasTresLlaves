@@ -68,7 +68,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         {/* Player Profile Preview */}
         <div className="flex items-center gap-3 bg-black/60 border border-amber-600/40 rounded-xl p-2 px-3.5 backdrop-blur-xs shadow-lg">
           <img
-            src="/assets/aistudio/6ak9y_feb79eab.jpg"
+            src="./assets/aistudio/6ak9y_feb79eab.jpg"
             alt="Martín"
             className="w-11 h-11 rounded-lg border-2 border-amber-500/60 object-cover object-top shadow-md shrink-0 bg-slate-800"
           />
@@ -94,19 +94,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </div>
         </div>
 
-        {/* Currency & Network Status & Download Button */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <a
-            href="/LasTresLlaves_3D_Actualizado.zip"
-            download="LasTresLlaves_3D_Actualizado.zip"
-            className="bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/60 text-amber-300 px-3 py-2 rounded-xl text-xs font-bold font-mono flex items-center gap-1.5 shadow-lg transition active:scale-95"
-            title="Descargar código actualizado para tu GitHub"
-          >
-            <span>📥</span>
-            <span className="hidden sm:inline">Descargar ZIP</span>
-          </a>
-
-          <div className="bg-black/60 border border-amber-500/40 rounded-xl px-3 py-2 text-sm font-mono text-amber-300 flex items-center gap-1.5 shadow-lg">
+        {/* Currency & Network Status */}
+        <div className="flex items-center gap-3">
+          <div className="bg-black/60 border border-amber-500/40 rounded-xl px-3.5 py-2 text-sm font-mono text-amber-300 flex items-center gap-1.5 shadow-lg">
             <span>🪙</span>
             <span className="font-extrabold">{stats.gold.toLocaleString()}</span>
           </div>
@@ -127,41 +117,51 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Hero Centerpiece: Bespoke SVG Title Lockup */}
-      <div className="relative z-10 flex flex-col items-center justify-center text-center my-auto max-w-3xl">
+      <div className="relative z-10 flex flex-col items-center justify-center text-center my-auto max-w-4xl px-2 w-full">
         {/* Title Lockup Graphic */}
-        <div className="mb-4">
-          <svg className="w-56 h-16 md:w-80 md:h-20 filter drop-shadow-[0_4px_16px_rgba(255,176,32,0.4)]" viewBox="0 0 320 80">
+        <div className="mb-4 w-full flex justify-center px-2">
+          <svg
+            className="w-full max-w-xl md:max-w-3xl h-auto filter drop-shadow-[0_4px_24px_rgba(255,176,32,0.45)]"
+            viewBox="0 0 640 96"
+            fill="none"
+          >
             <defs>
               <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fff275" />
-                <stop offset="50%" stopColor="#ffb020" />
-                <stop offset="100%" stopColor="#c2410c" />
+                <stop offset="0%" stopColor="#fff8b5" />
+                <stop offset="35%" stopColor="#ffb020" />
+                <stop offset="80%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#ea580c" />
               </linearGradient>
             </defs>
-            {/* Three key icons */}
-            <path
-              d="M30 40 C30 25 42 15 55 15 C68 15 80 25 80 40 C80 50 74 58 65 62 L65 70 L55 70 L55 64 L45 64 L45 60 C36 56 30 48 30 40 Z"
-              fill="url(#goldGrad)"
-              opacity="0.8"
-              transform="scale(0.35) translate(40, 20)"
-            />
+            {/* Top Subheading */}
             <text
-              x="160"
-              y="52"
+              x="320"
+              y="22"
               textAnchor="middle"
-              className="font-serif font-black tracking-widest fill-[url(#goldGrad)]"
-              style={{ fontSize: '34px', letterSpacing: '3px' }}
+              className="font-mono font-black uppercase tracking-[0.35em] fill-amber-300"
+              style={{ fontSize: '12px' }}
             >
-              LAS TRES LLAVES 3D
+              ★ AVENTURAS EN 3D ★
             </text>
+            {/* Main Title: MARTÍN Y LAS TRES LLAVES */}
             <text
-              x="160"
-              y="74"
+              x="320"
+              y="60"
               textAnchor="middle"
-              className="font-mono font-bold tracking-widest fill-amber-200/80"
-              style={{ fontSize: '11px', letterSpacing: '5px' }}
+              className="font-serif font-black tracking-wider fill-[url(#goldGrad)]"
+              style={{ fontSize: '32px', letterSpacing: '1.5px', fontFamily: "'Cinzel', serif" }}
             >
-              ACCIÓN Y SUPERVIVENCIA 3D
+              MARTÍN Y LAS TRES LLAVES
+            </text>
+            {/* Subtitle */}
+            <text
+              x="320"
+              y="84"
+              textAnchor="middle"
+              className="font-mono font-bold tracking-[0.4em] fill-amber-200/90"
+              style={{ fontSize: '11px' }}
+            >
+              EDICIÓN 3D DEFINITIVA
             </text>
           </svg>
         </div>

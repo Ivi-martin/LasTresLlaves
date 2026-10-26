@@ -1304,7 +1304,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           {/* Top Center: The 3 Keys Lockup */}
           <div className="pointer-events-auto flex flex-col items-center bg-black/60 border border-amber-500/30 rounded-2xl p-2 px-4 shadow-xl">
             <div className="text-[10px] font-bold text-amber-300 uppercase tracking-widest font-title mb-1">
-              Las Tres Llaves
+              Martín y Las Tres Llaves
             </div>
             <div className="flex items-center gap-3">
               {[0, 1, 2].map((idx) => {
