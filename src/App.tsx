@@ -14,6 +14,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { PauseModal } from './components/PauseModal';
 import { GameOverModal } from './components/GameOverModal';
 import { VictoryModal } from './components/VictoryModal';
+import { AdminModal } from './components/AdminModal';
 import { ToastOverlay } from './components/ToastOverlay';
 import {
   EquippedCosmetics,
@@ -27,6 +28,7 @@ import { notificationService } from './utils/notifications';
 export default function App() {
   const [view, setView] = useState<'title' | 'playing'>('title');
   const [startPhase, setStartPhase] = useState<number>(1);
+  const [startAtBoss, setStartAtBoss] = useState<boolean>(false);
 
   // Profile and Settings state
   const [stats, setStats] = useState<PlayerStats>(StorageManager.getStats());
@@ -39,6 +41,7 @@ export default function App() {
   const [leaderboardModalOpen, setLeaderboardModalOpen] = useState<boolean>(false);
   const [weeklyModalOpen, setWeeklyModalOpen] = useState<boolean>(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState<boolean>(false);
+  const [adminModalOpen, setAdminModalOpen] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
 
   // End game dialogs
@@ -59,8 +62,9 @@ export default function App() {
     }
   }, [settings.soundEnabled, settings.soundVolume]);
 
-  const handleStartGame = (phase: number = 1) => {
+  const handleStartGame = (phase: number = 1, atBoss: boolean = false) => {
     setStartPhase(phase);
+    setStartAtBoss(atBoss);
     setGameOverData(null);
     setVictoryData(null);
     setIsPaused(false);
@@ -81,10 +85,23 @@ export default function App() {
     setVictoryData({ score: finalScore, kills });
   };
 
+  const handlePhaseAdvance = (nextPhase: number) => {
+    const updated = StorageManager.unlockPhase(nextPhase);
+    setStats(updated);
+    setStartPhase(nextPhase);
+    setStartAtBoss(false);
+    notificationService.emitToast(
+      `¡FASE ${nextPhase} ALCANZADA!`,
+      `Entrando al siguiente reino sagrado.`,
+      'reward'
+    );
+  };
+
   const handleExitToMenu = () => {
     setIsPaused(false);
     setGameOverData(null);
     setVictoryData(null);
+    setStartAtBoss(false);
     setView('title');
   };
 
@@ -92,11 +109,74 @@ export default function App() {
     setGameOverData(null);
     setVictoryData(null);
     setIsPaused(false);
-    // Restart current phase
     setView('title');
     setTimeout(() => {
       setView('playing');
     }, 10);
+  };
+
+  // Admin / Dev Panel Actions (Default PIN: 1234)
+  const handleAdminSelectPhase = (phase: number) => {
+    const updated = StorageManager.unlockPhase(phase);
+    setStats(updated);
+    setStartPhase(phase);
+    setStartAtBoss(false);
+    setIsPaused(false);
+    setAdminModalOpen(false);
+    if (view === 'title') {
+      handleStartGame(phase);
+    } else {
+      setView('title');
+      setTimeout(() => {
+        setView('playing');
+      }, 20);
+    }
+  };
+
+  const handleAdminEnterBossCave = () => {
+    if (view === 'playing' && (window as any).__martinDevApi?.enterBossCave) {
+      (window as any).__martinDevApi.enterBossCave();
+      setIsPaused(false);
+      setAdminModalOpen(false);
+    } else {
+      setStartAtBoss(true);
+      setAdminModalOpen(false);
+      handleStartGame(startPhase, true);
+    }
+  };
+
+  const handleAdminInstantKeys = () => {
+    if ((window as any).__martinDevApi?.instantKeys) {
+      (window as any).__martinDevApi.instantKeys();
+    }
+  };
+
+  const handleAdminUnlockAllPhases = () => {
+    const updated = StorageManager.unlockAllPhases();
+    setStats(updated);
+    notificationService.emitToast(
+      'Modo Desarrollador',
+      '¡Fases 1, 2 y 3 desbloqueadas para selección!',
+      'reward'
+    );
+  };
+
+  const handleAdminAddCheats = () => {
+    if ((window as any).__martinDevApi?.addCheats) {
+      (window as any).__martinDevApi.addCheats();
+    }
+  };
+
+  const handleAdminKillBoss = () => {
+    if ((window as any).__martinDevApi?.killBoss) {
+      (window as any).__martinDevApi.killBoss();
+    }
+  };
+
+  const handleAdminToggleGodMode = (enabled: boolean) => {
+    if ((window as any).__martinDevApi?.toggleGodMode) {
+      (window as any).__martinDevApi.toggleGodMode(enabled);
+    }
   };
 
   const handleRewardClaimed = useCallback((rewardText: string, goldAdded: number) => {
@@ -125,17 +205,21 @@ export default function App() {
           onOpenLeaderboard={() => setLeaderboardModalOpen(true)}
           onOpenWeeklyChallenges={() => setWeeklyModalOpen(true)}
           onOpenSettings={() => setSettingsModalOpen(true)}
+          onOpenAdmin={() => setAdminModalOpen(true)}
         />
       ) : (
         <GameCanvas
-          key={`canvas_phase_${startPhase}`}
+          key={`canvas_phase_${startPhase}_${startAtBoss ? 'boss' : 'field'}`}
           initialPhase={startPhase}
+          startAtBoss={startAtBoss}
           equipped={equipped}
           settings={settings}
           stats={stats}
           onGameOver={handleGameOver}
           onVictory={handleVictory}
+          onPhaseAdvance={handlePhaseAdvance}
           onPause={handlePause}
+          onOpenAdmin={() => setAdminModalOpen(true)}
           onStatsUpdate={(newStats) => setStats(newStats)}
           isPaused={isPaused || !!gameOverData || !!victoryData}
         />
@@ -180,11 +264,26 @@ export default function App() {
         />
       )}
 
+      {/* Admin / Dev Panel Modal (PIN: 1234) */}
+      <AdminModal
+        currentPhase={startPhase}
+        isOpen={adminModalOpen}
+        onClose={() => setAdminModalOpen(false)}
+        onSelectPhase={handleAdminSelectPhase}
+        onEnterBossCave={handleAdminEnterBossCave}
+        onInstantKeys={handleAdminInstantKeys}
+        onToggleGodMode={handleAdminToggleGodMode}
+        onUnlockAllPhases={handleAdminUnlockAllPhases}
+        onAddCheats={handleAdminAddCheats}
+        onKillBoss={handleAdminKillBoss}
+      />
+
       {/* In-Game State Modals */}
       {isPaused && (
         <PauseModal
           onResume={() => setIsPaused(false)}
           onOpenSettings={() => setSettingsModalOpen(true)}
+          onOpenAdmin={() => setAdminModalOpen(true)}
           onExitToMenu={handleExitToMenu}
         />
       )}
@@ -210,3 +309,4 @@ export default function App() {
     </div>
   );
 }
+

@@ -322,6 +322,22 @@ export const StorageManager = {
     } catch {}
   },
 
+  unlockPhase(phase: number): PlayerStats {
+    const stats = this.getStats();
+    if (phase > stats.highestPhase) {
+      stats.highestPhase = phase;
+      this.saveStats(stats);
+    }
+    return stats;
+  },
+
+  unlockAllPhases(): PlayerStats {
+    const stats = this.getStats();
+    stats.highestPhase = 3;
+    this.saveStats(stats);
+    return stats;
+  },
+
   addXpAndGold(xpGained: number, goldGained: number): { newStats: PlayerStats; leveledUp: boolean; newLevel: number } {
     const stats = this.getStats();
     let currentLvl = stats.level;

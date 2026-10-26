@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getProceduralNoiseTexture, getCobblestoneTexture, getLavaTexture } from './materials';
-import { createSanctuaryPortal } from './models';
+import { createSanctuaryPortal, createBossLairExterior, createInteriorBossArena, createVictoryExitPortal } from './models';
 
 export interface WorldObstacle {
   x: number;
@@ -19,6 +19,10 @@ export interface EnvironmentData {
   keySpawnPoints: THREE.Vector3[];
   bossArenaCenter: THREE.Vector3;
   mapRadius: number;
+}
+
+export function buildBossInteriorEnvironment(phase = 1) {
+  return createInteriorBossArena(phase);
 }
 
 export function buildPhaseEnvironment(phase = 1): EnvironmentData {
@@ -64,18 +68,22 @@ export function buildPhaseEnvironment(phase = 1): EnvironmentData {
   ground.receiveShadow = true;
   group.add(ground);
 
-  // 2. Sanctuary Portal (placed centrally or slightly offset)
-  const portalPos = new THREE.Vector3(0, 0, -18);
-  const portal = createSanctuaryPortal(phase);
-  portal.position.copy(portalPos);
+  // 2. Boss Lair / House / Cave Exterior
+  const bossLairCenter = new THREE.Vector3(0, 0, -22);
+  const portal = createBossLairExterior(phase);
+  portal.position.copy(bossLairCenter);
   group.add(portal);
 
-  // Obstacle for portal pillars
-  obstacles.push({ x: portalPos.x - 2, z: portalPos.z, radius: 0.9, type: 'pillar' });
-  obstacles.push({ x: portalPos.x + 2, z: portalPos.z, radius: 0.9, type: 'pillar' });
+  // Entrance door interaction threshold position (in front of the facade)
+  const portalPos = new THREE.Vector3(0, 0, -18);
+
+  // Obstacles for boss lair exterior walls
+  obstacles.push({ x: 0, z: -23, radius: 4.5, type: 'wall' });
+  obstacles.push({ x: -4, z: -21, radius: 1.5, type: 'wall' });
+  obstacles.push({ x: 4, z: -21, radius: 1.5, type: 'wall' });
 
   // 3. Boss Arena Center
-  const bossArenaCenter = new THREE.Vector3(0, 0, -18);
+  const bossArenaCenter = new THREE.Vector3(0, 0, 0);
 
   // 4. Key Spawns in 3 strategic directions
   const keySpawnPoints = [

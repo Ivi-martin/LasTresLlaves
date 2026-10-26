@@ -4,6 +4,8 @@ import { sound } from '../utils/audio';
 import { StorageManager, DEFAULT_SKINS, DEFAULT_HATS } from '../utils/storage';
 import { Title3DBackdrop } from './Title3DBackdrop';
 
+import { notificationService } from '../utils/notifications';
+
 interface TitleScreenProps {
   stats: PlayerStats;
   equipped: EquippedCosmetics;
@@ -13,6 +15,7 @@ interface TitleScreenProps {
   onOpenLeaderboard: () => void;
   onOpenWeeklyChallenges: () => void;
   onOpenSettings: () => void;
+  onOpenAdmin: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
@@ -24,9 +27,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onOpenLeaderboard,
   onOpenWeeklyChallenges,
   onOpenSettings,
+  onOpenAdmin,
 }) => {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const { canClaim } = StorageManager.canClaimDailyReward();
+  const maxUnlocked = Math.max(1, stats.highestPhase || 1);
   const [selectedPhase, setSelectedPhase] = useState<number>(1);
 
   useEffect(() => {
@@ -94,12 +99,24 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </div>
         </div>
 
-        {/* Currency & Network Status */}
-        <div className="flex items-center gap-3">
+        {/* Currency, Admin & Network Status */}
+        <div className="flex items-center gap-2.5">
           <div className="bg-black/60 border border-amber-500/40 rounded-xl px-3.5 py-2 text-sm font-mono text-amber-300 flex items-center gap-1.5 shadow-lg">
             <span>🪙</span>
             <span className="font-extrabold">{stats.gold.toLocaleString()}</span>
           </div>
+
+          <button
+            onClick={() => {
+              sound.click();
+              onOpenAdmin();
+            }}
+            className="px-3 py-2 rounded-xl border border-amber-500/60 bg-amber-950/50 hover:bg-amber-900/70 text-amber-300 text-xs font-mono font-bold flex items-center gap-1.5 shadow-lg transition active:scale-95 cursor-pointer backdrop-blur-xs"
+            title="Panel de Administrador y selector de fases para desarrollo (Clave: 1234)"
+          >
+            <span>🛠️</span>
+            <span>ADMIN (1234)</span>
+          </button>
 
           <div
             className={`px-3 py-2 rounded-xl border text-xs font-mono flex items-center gap-2 shadow-lg backdrop-blur-xs ${
@@ -171,29 +188,60 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           desbloquea la casa de los titanes y derrota a los tres colosos.
         </p>
 
-        {/* Phase Quick Selector */}
-        <div className="flex items-center gap-2 mb-6 bg-black/60 border border-slate-800 p-1.5 rounded-xl">
-          <span className="text-xs text-slate-400 font-mono ml-2 mr-1">Fase Inicial:</span>
+        {/* Phase Quick Selector with Sequential Lock & Admin Dev Button */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-6 bg-black/65 border border-slate-800 p-2 rounded-2xl shadow-lg">
+          <span className="text-xs text-slate-400 font-mono ml-1 mr-1">Fase Inicial:</span>
           {[
-            { num: 1, label: '1. Bosque' },
-            { num: 2, label: '2. Cripta' },
-            { num: 3, label: '3. Magma' },
-          ].map((p) => (
-            <button
-              key={p.num}
-              onClick={() => {
-                sound.click();
-                setSelectedPhase(p.num);
-              }}
-              className={`px-3 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer ${
-                selectedPhase === p.num
-                  ? 'bg-amber-600 text-white shadow-md'
-                  : 'bg-slate-900 text-slate-400 hover:text-white'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+            { num: 1, label: '1. Bosque', req: 'Disponible' },
+            { num: 2, label: '2. Cripta', req: 'Completa Fase 1' },
+            { num: 3, label: '3. Magma', req: 'Completa Fase 2' },
+          ].map((p) => {
+            const isUnlocked = p.num <= maxUnlocked;
+            const isSelected = selectedPhase === p.num;
+
+            return (
+              <button
+                key={p.num}
+                onClick={() => {
+                  if (isUnlocked) {
+                    sound.click();
+                    setSelectedPhase(p.num);
+                  } else {
+                    sound.hurt();
+                    notificationService.emitToast(
+                      `Fase ${p.num} Bloqueada`,
+                      `Debes superar la fase anterior primero para desbloquearla, o acceder con el botón ADMIN (clave 1234).`,
+                      'info'
+                    );
+                  }
+                }}
+                className={`relative px-3.5 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md border border-amber-400'
+                    : isUnlocked
+                    ? 'bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500'
+                    : 'bg-slate-950/80 border border-slate-800/80 text-slate-500 hover:border-red-900/50'
+                }`}
+                title={isUnlocked ? `Iniciar en ${p.label}` : `Bloqueada: ${p.req}`}
+              >
+                {!isUnlocked && <span className="text-[11px] opacity-75">🔒</span>}
+                <span>{p.label}</span>
+                {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />}
+              </button>
+            );
+          })}
+
+          <button
+            onClick={() => {
+              sound.click();
+              onOpenAdmin();
+            }}
+            className="ml-1 px-2.5 py-1.5 rounded-xl bg-amber-950/60 hover:bg-amber-900/80 border border-amber-500/50 text-amber-300 text-xs font-mono font-bold flex items-center gap-1 transition active:scale-95 cursor-pointer shadow"
+            title="Panel de desarrollo y selección libre de fases (Clave: 1234)"
+          >
+            <span>🛠️</span>
+            <span>DEV (1234)</span>
+          </button>
         </div>
 
         {/* Primary Start CTA */}

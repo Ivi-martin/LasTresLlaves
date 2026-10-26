@@ -19,18 +19,26 @@ import {
   triggerHitFlash,
   updateHitFlash,
   CharacterGroup,
+  createVictoryExitPortal,
 } from '../game3d/models';
 import { ParticleEngine } from '../game3d/particles';
-import { buildPhaseEnvironment, WorldObstacle } from '../game3d/environment';
+import {
+  buildPhaseEnvironment,
+  buildBossInteriorEnvironment,
+  WorldObstacle,
+} from '../game3d/environment';
 
 interface GameCanvasProps {
   initialPhase?: number;
+  startAtBoss?: boolean;
   equipped: EquippedCosmetics;
   settings: GameSettings;
   stats: PlayerStats;
   onGameOver: (finalScore: number, phase: number, kills: number) => void;
   onVictory: (finalScore: number, kills: number) => void;
+  onPhaseAdvance?: (nextPhase: number) => void;
   onPause: () => void;
+  onOpenAdmin?: () => void;
   onStatsUpdate: (newStats: PlayerStats) => void;
   isPaused: boolean;
 }
@@ -48,25 +56,29 @@ const PHASE_INFO = [
   {
     name: 'Fase 1: El Bosque Ancestral',
     bossName: 'GUARDIÁN DE LA CASA',
-    desc: 'Encuentra las 3 llaves ocultas entre los árboles y abre el Santuario.',
+    lairTitle: 'CASA / CUEVA DEL GUARDIÁN',
+    desc: 'Encuentra las 3 llaves del bosque y entra a la Cueva del Guardián.',
     fogColor: 0x142817,
     ambientColor: 0x588157,
   },
   {
     name: 'Fase 2: La Cripta Sombría',
     bossName: 'ESPECTRO DEL ABISMO',
-    desc: 'La oscuridad reina en la cripta. Sigue las luces y vence al Espectro.',
+    lairTitle: 'CUEVA SUBTERRÁNEA DEL ESPECTRO',
+    desc: 'Encuentra las 3 llaves rúnicas y entra a la Cueva del Espectro.',
     fogColor: 0x0d1117,
     ambientColor: 0x3d348b,
   },
   {
     name: 'Fase 3: Fortaleza de Magma',
     bossName: 'COLOSO DE MAGMA',
-    desc: 'Cuidado con la lava ardiente. Destruye al Coloso para triunfar.',
+    lairTitle: 'CÁMARA VOLCÁNICA DEL COLOSO',
+    desc: 'Encuentra las 3 llaves ígneas y enfréntate al Coloso en su cueva.',
     fogColor: 0x1a0602,
     ambientColor: 0x6a040f,
   },
 ];
+
 
 interface ActiveProjectile {
   mesh: THREE.Mesh;
@@ -108,12 +120,15 @@ interface ActivePickup {
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
   initialPhase = 1,
+  startAtBoss = false,
   equipped,
   settings,
   stats,
   onGameOver,
   onVictory,
+  onPhaseAdvance,
   onPause,
+  onOpenAdmin,
   onStatsUpdate,
   isPaused,
 }) => {
@@ -126,9 +141,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     stats,
     onGameOver,
     onVictory,
+    onPhaseAdvance,
     onPause,
+    onOpenAdmin,
     onStatsUpdate,
     isPaused,
+    startAtBoss,
   });
 
   useEffect(() => {
@@ -138,11 +156,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       stats,
       onGameOver,
       onVictory,
+      onPhaseAdvance,
       onPause,
+      onOpenAdmin,
       onStatsUpdate,
       isPaused,
+      startAtBoss,
     };
-  }, [equipped, settings, stats, onGameOver, onVictory, onPause, onStatsUpdate, isPaused]);
+  }, [equipped, settings, stats, onGameOver, onVictory, onPhaseAdvance, onPause, onOpenAdmin, onStatsUpdate, isPaused, startAtBoss]);
 
   // HUD State (decoupled and updated on state changes)
   const [hudState, setHudState] = useState({
@@ -158,10 +179,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     bossActive: false,
     bossHp: 0,
     bossMaxHp: 750,
-    bossName: PHASE_INFO[initialPhase - 1].bossName,
+    bossName: PHASE_INFO[initialPhase - 1]?.bossName || 'JEFE',
+    lairTitle: PHASE_INFO[initialPhase - 1]?.lairTitle || 'CUEVA DEL JEFE',
     compassAngle: 0,
     portalUnlocked: false,
-    levelTip: PHASE_INFO[initialPhase - 1].desc,
+    inBossArena: false,
+    canEnterCave: false,
+    bossDefeated: false,
+    isGodMode: false,
+    levelTip: PHASE_INFO[initialPhase - 1]?.desc || '',
     touchEnabled: settings.touchControls || ('ontouchstart' in window),
   });
 
@@ -172,6 +198,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // References to trigger actions from HUD buttons
   const triggerBombRef = useRef<() => void>(() => {});
   const switchWeaponRef = useRef<() => void>(() => {});
+  const enterBossCaveRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const container = mountRef.current;
@@ -332,7 +359,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       keysHeld[e.code] = true;
-      if (e.code === 'KeyE' || e.code === 'Space') {
+      if (e.code === 'KeyE') {
+        enterBossCaveRef.current();
+      } else if (e.code === 'Space') {
         throwBomb();
       } else if (e.code === 'Digit1') {
         setWeapon('pistol');
@@ -340,6 +369,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         setWeapon('shotgun');
       } else if (e.code === 'KeyQ') {
         setWeapon(activeWeapon === 'pistol' ? 'shotgun' : 'pistol');
+      } else if (e.code === 'F1') {
+        propsRef.current.onOpenAdmin?.();
       } else if (e.code === 'KeyP' || e.code === 'Escape') {
         propsRef.current.onPause();
       }
@@ -541,60 +572,174 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       });
     }
 
-    // Boss Encounter Setup
-    function summonBoss() {
-      if (bossActive) return;
+    // Dedicated Interior Boss Arena State
+    let inBossArena = false;
+    let interiorData: ReturnType<typeof buildBossInteriorEnvironment> | null = null;
+    let victoryExitPortal: THREE.Group | null = null;
+    let bossDefeated = false;
+    let isGodMode = false;
+    const exitPortalPos = new THREE.Vector3(0, 0, -12);
+
+    function enterBossArena() {
+      if (inBossArena) return;
+      inBossArena = true;
+      sound.levelUp();
+      sound.bossDie(); // dramatic roar
+
+      // Remove outdoor environment from scene
+      scene.remove(envData.group);
+
+      // Create & add dedicated interior boss arena
+      interiorData = buildBossInteriorEnvironment(currentPhase);
+      scene.add(interiorData.group);
+
+      // Clear outside roaming enemies
+      for (const en of enemies) {
+        scene.remove(en.mesh);
+      }
+      enemies.length = 0;
+
+      // Clear outside projectiles
+      for (const pr of projectiles) {
+        scene.remove(pr.mesh);
+        pr.mesh.geometry.dispose();
+        (pr.mesh.material as THREE.Material).dispose();
+      }
+      projectiles.length = 0;
+
+      // Position hero inside at the entrance doorway (z = 13.5)
+      heroMesh.position.set(0, 0, 13.5);
+      heroMesh.rotation.y = Math.PI;
+
+      // Interior atmosphere & lighting
+      const interiorFog = currentPhase === 1 ? 0x161e14 : currentPhase === 2 ? 0x0a0c14 : 0x180602;
+      scene.background = new THREE.Color(interiorFog);
+      scene.fog = new THREE.FogExp2(interiorFog, 0.024);
+
+      // Summon Boss inside center of the interior arena
       bossActive = true;
       bossHp = bossMaxHp;
-      sound.bossDie(); // dramatic roar
-      cameraShake = 0.8;
-
+      bossPos.set(0, 0, -3.5);
       bossMesh = createBossModel(currentPhase);
       bossMesh.position.copy(bossPos);
       scene.add(bossMesh);
 
-      particles.emitShockwave(bossPos, 14, 0x9d4edd);
+      cameraShake = 0.9;
+      particles.emitShockwave(bossPos, 16, currentPhase === 1 ? 0x52b788 : currentPhase === 2 ? 0x00f5d4 : 0xff5400);
+
+      notificationService.emitToast(
+        `¡Has entrado a la ${phaseData.lairTitle}!`,
+        `¡Enfréntate al ${phaseData.bossName}!`,
+        'reward'
+      );
 
       setHudState((prev) => ({
         ...prev,
         bossActive: true,
         bossHp,
         bossMaxHp,
+        inBossArena: true,
+        canEnterCave: false,
+        levelTip: `¡Derrota al ${phaseData.bossName}!`,
       }));
     }
+    enterBossCaveRef.current = enterBossArena;
 
     function handleBossDefeat() {
+      if (bossDefeated) return;
+      bossDefeated = true;
+      bossActive = false;
       sound.bossDie();
       sound.levelUp();
-      bossActive = false;
       score += 1500;
       kills++;
 
       if (bossMesh) {
-        particles.emitShockwave(bossMesh.position, 16, 0xffea00);
-        particles.emit(bossMesh.position, 60, 0xffb703, 9, 0.6);
+        particles.emitShockwave(bossMesh.position, 18, 0xffea00);
+        particles.emit(bossMesh.position, 70, 0xffb703, 10, 0.7);
         scene.remove(bossMesh);
         bossMesh = null;
       }
 
+      // Spawn Golden Victory Exit Portal inside the arena at (0, 0, -12)
+      victoryExitPortal = createVictoryExitPortal(currentPhase);
+      victoryExitPortal.position.copy(exitPortalPos);
+      scene.add(victoryExitPortal);
+      particles.emitShockwave(exitPortalPos, 14, 0xffea00);
+
+      notificationService.emitToast(
+        '¡JEFE DERROTADO!',
+        currentPhase < 3
+          ? '¡El Portal Sagrado de salida ha aparecido! Atraviésalo para avanzar a la siguiente fase.'
+          : '¡Has derrotado al Coloso Final! Atraviesa el Portal Sagrado para la Victoria total.',
+        'reward'
+      );
+
       // Update storage stats
       const currentStats = propsRef.current.stats;
+      const nextUnlockedPhase = Math.min(3, Math.max(currentStats.highestPhase, currentPhase + 1));
       const newStats = {
         ...currentStats,
-        gold: currentStats.gold + goldCollected + 300,
-        xp: currentStats.xp + 450,
+        gold: currentStats.gold + goldCollected + 500,
+        xp: currentStats.xp + 600,
         totalKills: currentStats.totalKills + kills,
         totalBossesDefeated: currentStats.totalBossesDefeated + 1,
-        highestPhase: Math.max(currentStats.highestPhase, currentPhase + 1),
+        highestPhase: nextUnlockedPhase,
         highScore: Math.max(currentStats.highScore, score),
       };
       StorageManager.saveStats(newStats);
       propsRef.current.onStatsUpdate(newStats);
 
-      // Victory or Next Phase
-      setTimeout(() => {
-        propsRef.current.onVictory(score, kills);
-      }, 1000);
+      setHudState((prev) => ({
+        ...prev,
+        bossActive: false,
+        bossDefeated: true,
+        levelTip: '¡Atraviesa el Portal Dorado para avanzar!',
+      }));
+    }
+
+    // Expose Live Dev API for Admin Modal
+    (window as any).__martinDevApi = {
+      enterBossCave: () => enterBossArena(),
+      instantKeys: () => {
+        keysCollected[0] = true;
+        keysCollected[1] = true;
+        keysCollected[2] = true;
+        portalUnlocked = true;
+        keys.forEach((k) => {
+          k.collected = true;
+          scene.remove(k.mesh);
+        });
+        setHudState((prev) => ({
+          ...prev,
+          keysCollected: [true, true, true],
+          portalUnlocked: true,
+          levelTip: `¡La ${phaseData.lairTitle} está abierta! Acércate a la entrada.`,
+        }));
+        sound.levelUp();
+      },
+      toggleGodMode: (val: boolean) => {
+        isGodMode = val;
+        setHudState((prev) => ({ ...prev, isGodMode: val }));
+      },
+      killBoss: () => {
+        if (bossActive) {
+          handleBossDefeat();
+        }
+      },
+      addCheats: () => {
+        bombCount += 10;
+        goldCollected += 1000;
+        setHudState((prev) => ({
+          ...prev,
+          bombs: bombCount,
+          gold: propsRef.current.stats.gold + goldCollected,
+        }));
+      },
+    };
+
+    if (propsRef.current.startAtBoss) {
+      setTimeout(() => enterBossArena(), 200);
     }
 
     // 6. Simulation & Animation Loop (Lossless 60fps)
@@ -631,9 +776,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const nextX = heroMesh.position.x + normX * baseSpeed * dt;
           const nextZ = heroMesh.position.z + normZ * baseSpeed * dt;
 
+          const activeObstacles = inBossArena && interiorData ? interiorData.obstacles : envData.obstacles;
+          const maxBounds = inBossArena ? 18.5 : (envData.mapRadius - 1.5);
+
           // Obstacle collision check
           let collides = false;
-          for (const obs of envData.obstacles) {
+          for (const obs of activeObstacles) {
             const dx = nextX - obs.x;
             const dz = nextZ - obs.z;
             if (dx * dx + dz * dz < (obs.radius + 0.5) ** 2) {
@@ -643,10 +791,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
 
           // Arena boundary check
-          if (!collides && Math.hypot(nextX, nextZ) < envData.mapRadius - 1.5) {
+          if (!collides && Math.hypot(nextX, nextZ) < maxBounds) {
             heroMesh.position.x = nextX;
             heroMesh.position.z = nextZ;
           }
+
 
           // Walk cycle animation
           heroMesh.userData.walkCycle += dt * 14;
@@ -723,13 +872,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         for (const hz of envData.hazardZones) {
           const dist = Math.hypot(heroMesh.position.x - hz.x, heroMesh.position.z - hz.z);
           if (dist < hz.r && invulnerableTimer <= 0) {
-            playerHp -= 12;
+            if (!isGodMode) {
+              playerHp -= 12;
+            }
             invulnerableTimer = 0.6;
             sound.hurt();
             cameraShake = 0.3;
             particles.emit(heroMesh.position, 10, 0xff5400, 4, 0.3);
             setHudState((prev) => ({ ...prev, hp: Math.max(0, playerHp) }));
-            if (playerHp <= 0) {
+            if (playerHp <= 0 && !isGodMode) {
               propsRef.current.onGameOver(score, currentPhase, kills);
             }
           }
@@ -766,7 +917,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 portalUnlocked = true;
                 sound.levelUp();
                 particles.emitShockwave(envData.portalPos, 8, 0x00f5d4);
-                notificationService.emitToast('¡Las 3 Llaves reunidas!', 'El Portal al Santuario se ha abierto. ¡Entra para enfrentar al Guardián!', 'reward');
+                notificationService.emitToast(
+                  '¡Las 3 Llaves reunidas!',
+                  `La entrada a la ${phaseData.lairTitle} se ha desbloqueado. ¡Acércate para entrar!`,
+                  'reward'
+                );
               }
 
               setHudState((prev) => ({
@@ -774,16 +929,43 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 keysCollected: [...keysCollected],
                 score,
                 portalUnlocked,
+                levelTip: portalUnlocked ? `¡Entra a la ${phaseData.lairTitle}!` : prev.levelTip,
               }));
             }
           }
         });
 
-        if (portalUnlocked) {
+        // In overworld, if portal is unlocked, check distance to the Boss Lair Entrance
+        if (portalUnlocked && !inBossArena) {
           nearestTargetPos = envData.portalPos;
-          // Check if stepped into portal
-          if (heroMesh.position.distanceTo(envData.portalPos) < 2.5 && !bossActive) {
-            summonBoss();
+          const distToCave = heroMesh.position.distanceTo(envData.portalPos);
+          const canEnter = distToCave < 4.5;
+          if (canEnter !== hudState.canEnterCave) {
+            setHudState((prev) => ({ ...prev, canEnterCave: canEnter }));
+          }
+          if (distToCave < 2.4) {
+            enterBossArena();
+          }
+        }
+
+        // Inside Boss Arena: check stepping into Victory Exit Portal
+        if (bossDefeated && victoryExitPortal) {
+          nearestTargetPos = exitPortalPos;
+          if (victoryExitPortal.userData.relic) {
+            victoryExitPortal.userData.relic.rotation.y += dt * 2.5;
+          }
+          const distToExit = heroMesh.position.distanceTo(exitPortalPos);
+          if (distToExit < 2.5) {
+            sound.levelUp();
+            particles.emitShockwave(heroMesh.position, 16, 0xffea00);
+            if (currentPhase < 3) {
+              if (propsRef.current.onPhaseAdvance) {
+                propsRef.current.onPhaseAdvance(currentPhase + 1);
+              }
+            } else {
+              propsRef.current.onVictory(score, kills);
+            }
+            return;
           }
         }
 
@@ -903,14 +1085,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             const pdy = Math.abs(pr.pos.y - (heroMesh.position.y + 0.7));
 
             if (Math.hypot(pdx, pdz) < 0.95 && pdy < 1.5 && invulnerableTimer <= 0) {
-              playerHp -= pr.dmg;
+              if (!isGodMode) {
+                playerHp -= pr.dmg;
+              }
               invulnerableTimer = 0.55;
               sound.hurt();
               cameraShake = 0.35;
               particles.emit(heroMesh.position, 12, 0xff0054, 4, 0.3);
               setHudState((prev) => ({ ...prev, hp: Math.max(0, playerHp) }));
 
-              if (playerHp <= 0) {
+              if (playerHp <= 0 && !isGodMode) {
                 propsRef.current.onGameOver(score, currentPhase, kills);
               }
 
@@ -933,8 +1117,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         // --- F. ENEMY SPAWNING & AI ---
         enemySpawnTimer -= dt;
-        const maxEnemies = 12 + currentPhase * 3;
-        if (enemySpawnTimer <= 0 && enemies.length < maxEnemies) {
+        const maxEnemies = inBossArena ? 0 : (12 + currentPhase * 3);
+        if (enemySpawnTimer <= 0 && enemies.length < maxEnemies && !inBossArena) {
           enemySpawnTimer = Math.max(1.2, 3.2 - currentPhase * 0.4);
 
           // Spawn around player at distance
@@ -1047,14 +1231,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
           // Contact damage with hero
           if (distToPlayer < en.radius + 0.4 && invulnerableTimer <= 0) {
-            playerHp -= en.dmg;
+            if (!isGodMode) {
+              playerHp -= en.dmg;
+            }
             invulnerableTimer = 0.65;
             sound.hurt();
             cameraShake = 0.4;
             particles.emit(heroMesh.position, 12, 0xff0054, 4, 0.3);
 
             setHudState((prev) => ({ ...prev, hp: Math.max(0, playerHp) }));
-            if (playerHp <= 0) {
+            if (playerHp <= 0 && !isGodMode) {
               propsRef.current.onGameOver(score, currentPhase, kills);
             }
           }
@@ -1116,17 +1302,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
           // Contact damage
           if (dist < 2.2 && invulnerableTimer <= 0) {
-            playerHp -= 28;
+            if (!isGodMode) {
+              playerHp -= 28;
+            }
             invulnerableTimer = 0.8;
             sound.hurt();
             cameraShake = 0.7;
             particles.emit(heroMesh.position, 20, 0xff0054, 6, 0.4);
             setHudState((prev) => ({ ...prev, hp: Math.max(0, playerHp) }));
-            if (playerHp <= 0) {
+            if (playerHp <= 0 && !isGodMode) {
               propsRef.current.onGameOver(score, currentPhase, kills);
             }
           }
         }
+
 
         // --- H. PARTICLES & CAMERA UPDATE ---
         particles.update(dt);
@@ -1188,6 +1377,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       particles.dispose();
       renderer.dispose();
+      (window as any).__martinDevApi = null;
       if (renderer.domElement.parentElement) {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
@@ -1327,7 +1517,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             </div>
           </div>
 
-          {/* Top Right: Gold, Score, Kills, Pause */}
+          {/* Top Right: Gold, Score, Kills, Admin, Pause */}
           <div className="pointer-events-auto flex items-center gap-2">
             <div className="flex items-center gap-2 bg-black/60 border border-white/10 rounded-2xl px-3 py-2 text-xs font-mono shadow-xl">
               <span className="text-amber-400 font-bold">🪙 {hudState.gold.toLocaleString()}</span>
@@ -1336,6 +1526,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               <span className="text-slate-500">|</span>
               <span className="text-slate-200 font-bold font-mono-num">{hudState.score}</span>
             </div>
+
+            {propsRef.current.onOpenAdmin && (
+              <button
+                onClick={propsRef.current.onOpenAdmin}
+                className="px-2.5 py-2 rounded-2xl bg-amber-950/70 border border-amber-500/60 text-amber-300 hover:text-white hover:bg-amber-900/90 transition shadow-xl active:scale-95 flex items-center gap-1.5 text-xs font-mono font-bold"
+                title="Panel de Administrador y herramientas de desarrollo (Clave: 1234)"
+              >
+                <span>🛠️</span>
+                <span className="hidden sm:inline">DEV (1234)</span>
+              </button>
+            )}
 
             <button
               onClick={onPause}
@@ -1348,6 +1549,46 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Center Prompt: Enter Boss Cave Banner */}
+        {hudState.canEnterCave && !hudState.inBossArena && (
+          <div className="pointer-events-auto mx-auto animate-bounce">
+            <button
+              onClick={() => enterBossCaveRef.current()}
+              className="px-6 py-3.5 bg-gradient-to-r from-purple-700 via-indigo-600 to-amber-600 hover:from-purple-600 hover:to-amber-500 active:scale-95 text-white font-black font-mono text-sm sm:text-base rounded-2xl shadow-[0_0_30px_rgba(168,85,247,0.7)] border-2 border-amber-300 tracking-wider transition cursor-pointer flex items-center gap-2.5"
+            >
+              <span className="text-xl">🚪</span>
+              <span>[E] ENTRAR A LA CUEVA / CASA DEL JEFE</span>
+              <span className="text-xs bg-amber-400 text-slate-950 px-2 py-0.5 rounded font-bold uppercase">¡ABIERTA!</span>
+            </button>
+          </div>
+        )}
+
+        {/* Center Banner: Boss Arena Indoor Header */}
+        {hudState.inBossArena && (
+          <div className="pointer-events-auto mx-auto flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-950/80 border border-purple-400/50 text-purple-200 text-xs font-mono font-bold shadow-lg">
+            <span>🏰</span>
+            <span>{hudState.lairTitle} · COMBATE CONTRA {hudState.bossName}</span>
+          </div>
+        )}
+
+        {/* Center Banner: Exit Portal Ready */}
+        {hudState.bossDefeated && (
+          <div className="pointer-events-auto mx-auto animate-pulse">
+            <div className="px-5 py-2.5 bg-gradient-to-r from-amber-600/90 to-yellow-500/90 border-2 border-yellow-300 text-slate-950 rounded-2xl font-black font-mono text-xs sm:text-sm shadow-[0_0_25px_rgba(255,214,10,0.8)] flex items-center gap-2">
+              <span className="text-lg">🌟</span>
+              <span>¡PORTAL DE SALIDA DISPONIBLE! Camina hacia el haz de luz dorada para avanzar.</span>
+            </div>
+          </div>
+        )}
+
+        {/* God Mode Active Pill */}
+        {hudState.isGodMode && (
+          <div className="pointer-events-auto mx-auto bg-emerald-950/80 border border-emerald-500 text-emerald-300 px-3 py-1 rounded-full text-[11px] font-mono font-bold flex items-center gap-1 shadow">
+            <span>🛡️</span>
+            <span>MODO DIOS ACTIVO (Inmortalidad)</span>
+          </div>
+        )}
 
         {/* Boss Health Bar (when Boss is active) */}
         {hudState.bossActive && (

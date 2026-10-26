@@ -1,6 +1,18 @@
 import * as THREE from 'three';
 import { EquippedCosmetics, AvatarSkin, AvatarHat, WeaponType } from '../types/game';
-import { getRadialShadowTexture, getDigitalCamoTexture } from './materials';
+import {
+  getRadialShadowTexture,
+  getDigitalCamoTexture,
+  getCobblestoneTexture,
+  getLavaTexture,
+} from './materials';
+
+export interface WorldObstacle {
+  x: number;
+  z: number;
+  radius: number;
+  type: 'rock' | 'tree' | 'pillar' | 'wall' | 'hazard';
+}
 
 // Shared geoms and materials cache to avoid memory leaks
 const shadowGeo = new THREE.PlaneGeometry(1, 1);
@@ -1304,3 +1316,530 @@ export function createPickupModel(type: 'heal' | 'bomb' | 'coin'): THREE.Group {
   group.position.y = 0.55;
   return group;
 }
+
+/**
+ * Creates the Boss Lair / House / Cave exterior building in the overworld.
+ */
+export function createBossLairExterior(phase = 1): THREE.Group {
+  const group = new THREE.Group();
+
+  if (phase === 1) {
+    // Phase 1: Cabaña / Cueva del Guardián del Bosque (Rustic Stone & Timber Cabin / Cave)
+    const stoneMat = new THREE.MeshStandardMaterial({ color: '#3d4035', roughness: 0.9 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: '#543d2b', roughness: 0.8 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: '#2b3a2a', roughness: 0.7 });
+    const doorMat = new THREE.MeshStandardMaterial({ color: '#2b1d0c', roughness: 0.85 });
+    const goldMat = new THREE.MeshStandardMaterial({ color: '#ffb703', metalness: 0.8, roughness: 0.2 });
+
+    // Main Cabin Walls (Stone foundation + Timber logs)
+    const baseBuilding = new THREE.Mesh(new THREE.BoxGeometry(8.5, 4.5, 7.5), stoneMat);
+    baseBuilding.position.set(0, 2.25, 0);
+    baseBuilding.castShadow = true;
+    baseBuilding.receiveShadow = true;
+    group.add(baseBuilding);
+
+    // Front Timber Facade Beams
+    const beamGeo = new THREE.BoxGeometry(0.5, 4.6, 0.5);
+    const leftBeam = new THREE.Mesh(beamGeo, woodMat);
+    leftBeam.position.set(-4.0, 2.3, 3.8);
+    leftBeam.castShadow = true;
+    group.add(leftBeam);
+
+    const rightBeam = new THREE.Mesh(beamGeo, woodMat);
+    rightBeam.position.set(4.0, 2.3, 3.8);
+    rightBeam.castShadow = true;
+    group.add(rightBeam);
+
+    // Gabled Roof
+    const roofGeo = new THREE.ConeGeometry(6.5, 3.2, 4);
+    const roof = new THREE.Mesh(roofGeo, roofMat);
+    roof.position.set(0, 6.0, 0);
+    roof.rotation.y = Math.PI / 4;
+    roof.scale.set(1.1, 1.0, 0.95);
+    roof.castShadow = true;
+    group.add(roof);
+
+    // Stone Chimney with smoke
+    const chimney = new THREE.Mesh(new THREE.BoxGeometry(1.2, 3.5, 1.2), stoneMat);
+    chimney.position.set(2.8, 5.5, -1.5);
+    chimney.castShadow = true;
+    group.add(chimney);
+
+    // Entrance Archway & Doorway
+    const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.6, 3.8, 0.6), woodMat);
+    archFrame.position.set(0, 1.9, 3.9);
+    group.add(archFrame);
+
+    // Door Portal Opening
+    const doorOpening = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.4, 3.2),
+      new THREE.MeshBasicMaterial({ color: '#101410', side: THREE.DoubleSide })
+    );
+    doorOpening.position.set(0, 1.6, 4.22);
+    group.add(doorOpening);
+
+    // Glowing Entrance Vortex
+    const vortex = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.2, 3.0),
+      new THREE.MeshBasicMaterial({
+        color: '#52b788',
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+      })
+    );
+    vortex.position.set(0, 1.6, 4.25);
+    group.add(vortex);
+
+    // 2 Lanterns beside the door
+    [-1.7, 1.7].forEach((lx) => {
+      const lanternBox = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35, 0.5, 0.35),
+        new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.8 })
+      );
+      lanternBox.position.set(lx, 2.6, 4.2);
+      group.add(lanternBox);
+
+      const lampLight = new THREE.PointLight(0xffb703, 2.0, 8);
+      lampLight.position.set(lx, 2.6, 4.5);
+      group.add(lampLight);
+    });
+
+    // 3 Stone Pedestals with keyhole rune sockets in front of the door
+    [-1.8, 0, 1.8].forEach((px, i) => {
+      const plinth = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.45, 0.8, 6),
+        stoneMat
+      );
+      plinth.position.set(px, 0.4, 5.5);
+      plinth.castShadow = true;
+      group.add(plinth);
+
+      // Key socket rune
+      const rune = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.25, 0.1),
+        goldMat
+      );
+      rune.position.set(px, 0.85, 5.5);
+      group.add(rune);
+    });
+
+    group.userData = { vortex, type: 'house' };
+  } else if (phase === 2) {
+    // Phase 2: Mausoleo / Cueva del Espectro (Gothic Crypt Tomb Facade)
+    const darkStoneMat = new THREE.MeshStandardMaterial({ color: '#1e212d', roughness: 0.85 });
+    const runeMat = new THREE.MeshStandardMaterial({ color: '#00f5d4', emissive: '#00f5d4', emissiveIntensity: 0.8 });
+
+    // Main Crypt Structure
+    const cryptBody = new THREE.Mesh(new THREE.BoxGeometry(9.0, 5.5, 7.5), darkStoneMat);
+    cryptBody.position.set(0, 2.75, 0);
+    cryptBody.castShadow = true;
+    group.add(cryptBody);
+
+    // Gothic Arch Pillars
+    const colGeo = new THREE.CylinderGeometry(0.5, 0.6, 5.0, 8);
+    const leftCol = new THREE.Mesh(colGeo, darkStoneMat);
+    leftCol.position.set(-2.2, 2.5, 4.0);
+    group.add(leftCol);
+
+    const rightCol = new THREE.Mesh(colGeo, darkStoneMat);
+    rightCol.position.set(2.2, 2.5, 4.0);
+    group.add(rightCol);
+
+    // Archway Header
+    const archTop = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.9, 0.8), darkStoneMat);
+    archTop.position.set(0, 5.2, 4.0);
+    group.add(archTop);
+
+    // Glowing Subterranean Portal
+    const vortex = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.8, 4.0),
+      new THREE.MeshBasicMaterial({
+        color: '#00b4d8',
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+      })
+    );
+    vortex.position.set(0, 2.2, 3.9);
+    group.add(vortex);
+
+    // Cyan Soul Braziers
+    [-2.6, 2.6].forEach((bx) => {
+      const brazier = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.25, 1.2, 6),
+        darkStoneMat
+      );
+      brazier.position.set(bx, 0.6, 5.0);
+      group.add(brazier);
+
+      const fire = new THREE.Mesh(new THREE.OctahedronGeometry(0.25), runeMat);
+      fire.position.set(bx, 1.35, 5.0);
+      group.add(fire);
+
+      const light = new THREE.PointLight(0x00f5d4, 2.2, 10);
+      light.position.set(bx, 1.5, 5.0);
+      group.add(light);
+    });
+
+    group.userData = { vortex, type: 'crypt' };
+  } else {
+    // Phase 3: Cámara Volcánica del Coloso (Obsidian Magma Cavern Mouth)
+    const basaltMat = new THREE.MeshStandardMaterial({ color: '#16191f', roughness: 0.9 });
+    const lavaMat = new THREE.MeshStandardMaterial({
+      color: '#ff4800',
+      emissive: '#d00000',
+      emissiveIntensity: 0.9,
+    });
+
+    // Basalt Arch Spires
+    const mainMaw = new THREE.Mesh(new THREE.BoxGeometry(10.0, 6.5, 8.0), basaltMat);
+    mainMaw.position.set(0, 3.25, 0);
+    mainMaw.castShadow = true;
+    group.add(mainMaw);
+
+    // Jagged Horn Spikes on Top
+    [-3.0, -1.0, 1.0, 3.0].forEach((sx, i) => {
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(0.7, 3.0, 5), basaltMat);
+      spire.position.set(sx, 7.5, 0.5);
+      spire.rotation.z = (i - 1.5) * 0.15;
+      spire.castShadow = true;
+      group.add(spire);
+    });
+
+    // Glowing Fiery Cavern Opening
+    const vortex = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.5, 4.5),
+      new THREE.MeshBasicMaterial({
+        color: '#ff5400',
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+      })
+    );
+    vortex.position.set(0, 2.5, 4.1);
+    group.add(vortex);
+
+    // Lava Light
+    const lavaLight = new THREE.PointLight(0xff5400, 3.5, 14);
+    lavaLight.position.set(0, 2.5, 4.5);
+    group.add(lavaLight);
+
+    group.userData = { vortex, type: 'magma' };
+  }
+
+  return group;
+}
+
+/**
+ * Creates the interior arena structure for the Boss fight (dedicated house / cave room).
+ */
+export function createInteriorBossArena(phase = 1): {
+  group: THREE.Group;
+  obstacles: WorldObstacle[];
+  lights: THREE.Light[];
+  hazardZones: { x: number; z: number; r: number }[];
+  arenaRadius: number;
+} {
+  const group = new THREE.Group();
+  const obstacles: WorldObstacle[] = [];
+  const lights: THREE.Light[] = [];
+  const hazardZones: { x: number; z: number; r: number }[] = [];
+  const arenaRadius = 20;
+
+  if (phase === 1) {
+    // Interior: Cabaña de Piedra / Cueva del Guardián del Bosque
+    const floorTexture = getCobblestoneTexture('#353d2d', '#23291d', 512);
+    floorTexture.repeat.set(10, 10);
+    const floorGeo = new THREE.PlaneGeometry(arenaRadius * 2.3, arenaRadius * 2.3);
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: floorTexture,
+      roughness: 0.8,
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    group.add(floor);
+
+    // Wall Material: High Rustic Stone Cavern Walls
+    const wallMat = new THREE.MeshStandardMaterial({ color: '#2a2e24', roughness: 0.95 });
+    const woodBeamMat = new THREE.MeshStandardMaterial({ color: '#4a3525', roughness: 0.85 });
+
+    // Build Circular Enclosed Walls (24 segmented wall blocks around perimeter)
+    const numWallSegments = 24;
+    for (let i = 0; i < numWallSegments; i++) {
+      const angle = (i * Math.PI * 2) / numWallSegments;
+      const x = Math.cos(angle) * arenaRadius;
+      const z = Math.sin(angle) * arenaRadius;
+
+      const wallBlock = new THREE.Mesh(new THREE.BoxGeometry(6.0, 7.5, 1.8), wallMat);
+      wallBlock.position.set(x, 3.75, z);
+      wallBlock.rotation.y = -angle + Math.PI / 2;
+      wallBlock.castShadow = true;
+      wallBlock.receiveShadow = true;
+      group.add(wallBlock);
+
+      obstacles.push({ x, z, radius: 2.2, type: 'wall' });
+    }
+
+    // Timber Roof Beams spanning the room
+    for (let r = -12; r <= 12; r += 6) {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(arenaRadius * 1.9, 0.6, 0.6), woodBeamMat);
+      beam.position.set(0, 7.2, r);
+      group.add(beam);
+    }
+
+    // 6 Burning Iron Wall Torches with warm flickering point lights
+    for (let t = 0; t < 6; t++) {
+      const angle = (t * Math.PI * 2) / 6;
+      const tx = Math.cos(angle) * (arenaRadius - 1.2);
+      const tz = Math.sin(angle) * (arenaRadius - 1.2);
+
+      const sconce = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.1, 0.6, 6),
+        new THREE.MeshStandardMaterial({ color: '#222222' })
+      );
+      sconce.position.set(tx, 3.2, tz);
+      group.add(sconce);
+
+      const flame = new THREE.Mesh(
+        new THREE.ConeGeometry(0.18, 0.45, 6),
+        new THREE.MeshBasicMaterial({ color: '#ff9e00' })
+      );
+      flame.position.set(tx, 3.6, tz);
+      group.add(flame);
+
+      const torchLight = new THREE.PointLight(0xff9e00, 2.2, 16);
+      torchLight.position.set(tx, 3.8, tz);
+      group.add(torchLight);
+      lights.push(torchLight);
+    }
+
+    // Corner decorative crates, barrels and stone pillars (combat cover)
+    const coverPoints = [
+      { x: -9, z: -9 },
+      { x: 9, z: -9 },
+      { x: -9, z: 9 },
+      { x: 9, z: 9 },
+    ];
+    coverPoints.forEach((cp) => {
+      const pillar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.8, 0.9, 4.0, 8),
+        wallMat
+      );
+      pillar.position.set(cp.x, 2.0, cp.z);
+      pillar.castShadow = true;
+      group.add(pillar);
+      obstacles.push({ x: cp.x, z: cp.z, radius: 1.0, type: 'pillar' });
+    });
+
+    // Sealed Entrance Door at z = 17
+    const door = new THREE.Mesh(new THREE.BoxGeometry(4.0, 4.5, 0.6), woodBeamMat);
+    door.position.set(0, 2.25, arenaRadius - 1.5);
+    door.castShadow = true;
+    group.add(door);
+    obstacles.push({ x: 0, z: arenaRadius - 1.5, radius: 1.8, type: 'wall' });
+
+  } else if (phase === 2) {
+    // Interior: Cripta del Espectro del Abismo
+    const floorTexture = getCobblestoneTexture('#141724', '#0c0e17', 512);
+    floorTexture.repeat.set(12, 12);
+    const floorGeo = new THREE.PlaneGeometry(arenaRadius * 2.3, arenaRadius * 2.3);
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: floorTexture,
+      roughness: 0.7,
+      metalness: 0.2,
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    group.add(floor);
+
+    const darkMat = new THREE.MeshStandardMaterial({ color: '#161926', roughness: 0.9 });
+    const runeMat = new THREE.MeshStandardMaterial({ color: '#00f5d4', emissive: '#00f5d4', emissiveIntensity: 0.8 });
+
+    // Perimeter Gothic Masonry Walls
+    const numWallSegments = 24;
+    for (let i = 0; i < numWallSegments; i++) {
+      const angle = (i * Math.PI * 2) / numWallSegments;
+      const x = Math.cos(angle) * arenaRadius;
+      const z = Math.sin(angle) * arenaRadius;
+
+      const wallBlock = new THREE.Mesh(new THREE.BoxGeometry(6.0, 8.5, 1.8), darkMat);
+      wallBlock.position.set(x, 4.25, z);
+      wallBlock.rotation.y = -angle + Math.PI / 2;
+      wallBlock.castShadow = true;
+      group.add(wallBlock);
+
+      obstacles.push({ x, z, radius: 2.2, type: 'wall' });
+    }
+
+    // 8 Subterranean Fluted Columns with Cyan Soul Braziers
+    for (let c = 0; c < 8; c++) {
+      const angle = (c * Math.PI * 2) / 8;
+      const cx = Math.cos(angle) * 11;
+      const cz = Math.sin(angle) * 11;
+
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 6.0, 8), darkMat);
+      col.position.set(cx, 3.0, cz);
+      col.castShadow = true;
+      group.add(col);
+      obstacles.push({ x: cx, z: cz, radius: 0.9, type: 'pillar' });
+
+      const soulFire = new THREE.Mesh(new THREE.OctahedronGeometry(0.25), runeMat);
+      soulFire.position.set(cx, 4.5, cz);
+      group.add(soulFire);
+
+      const colLight = new THREE.PointLight(0x00f5d4, 1.8, 12);
+      colLight.position.set(cx, 4.6, cz);
+      group.add(colLight);
+      lights.push(colLight);
+    }
+
+  } else {
+    // Interior: Cámara Volcánica del Coloso de Magma
+    const lavaTex = getLavaTexture(256);
+    lavaTex.repeat.set(3, 3);
+
+    const floorGeo = new THREE.PlaneGeometry(arenaRadius * 2.3, arenaRadius * 2.3);
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: '#1a0c08',
+      roughness: 0.9,
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    group.add(floor);
+
+    const basaltMat = new THREE.MeshStandardMaterial({ color: '#13151b', roughness: 0.9, metalness: 0.3 });
+    const lavaGlowMat = new THREE.MeshStandardMaterial({
+      map: lavaTex,
+      color: '#ff4800',
+      emissive: '#d00000',
+      emissiveIntensity: 1.0,
+      roughness: 0.3,
+    });
+
+    // Perimeter Volcanic Cavern Walls
+    const numWallSegments = 24;
+    for (let i = 0; i < numWallSegments; i++) {
+      const angle = (i * Math.PI * 2) / numWallSegments;
+      const x = Math.cos(angle) * arenaRadius;
+      const z = Math.sin(angle) * arenaRadius;
+
+      const wallBlock = new THREE.Mesh(new THREE.BoxGeometry(6.0, 9.0, 2.0), basaltMat);
+      wallBlock.position.set(x, 4.5, z);
+      wallBlock.rotation.y = -angle + Math.PI / 2;
+      wallBlock.castShadow = true;
+      group.add(wallBlock);
+
+      obstacles.push({ x, z, radius: 2.2, type: 'wall' });
+    }
+
+    // Outer Lava Moat Ring (Hazard zone inside the arena)
+    const lavaMoatGeo = new THREE.RingGeometry(arenaRadius - 3.5, arenaRadius - 1.2, 32);
+    const lavaMoat = new THREE.Mesh(lavaMoatGeo, lavaGlowMat);
+    lavaMoat.rotation.x = -Math.PI / 2;
+    lavaMoat.position.y = 0.05;
+    group.add(lavaMoat);
+
+    // Hazard zone around perimeter
+    hazardZones.push({ x: 0, z: 0, r: arenaRadius - 1.2 }); // Checked by distance to center if > arenaRadius - 3.5
+
+    // Volcanic Basalt Spires for cover
+    const spires = [
+      { x: -8, z: -7 },
+      { x: 8, z: -7 },
+      { x: -8, z: 7 },
+      { x: 8, z: 7 },
+    ];
+    spires.forEach((sp) => {
+      const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.1, 5.0, 6), basaltMat);
+      spire.position.set(sp.x, 2.5, sp.z);
+      spire.castShadow = true;
+      group.add(spire);
+      obstacles.push({ x: sp.x, z: sp.z, radius: 1.1, type: 'pillar' });
+    });
+
+    // Fiery Ambient Red-Orange Lights
+    for (let l = 0; l < 4; l++) {
+      const angle = (l * Math.PI * 2) / 4;
+      const lx = Math.cos(angle) * 12;
+      const lz = Math.sin(angle) * 12;
+
+      const fireLight = new THREE.PointLight(0xff5400, 3.0, 16);
+      fireLight.position.set(lx, 3.5, lz);
+      group.add(fireLight);
+      lights.push(fireLight);
+    }
+  }
+
+  return {
+    group,
+    obstacles,
+    lights,
+    hazardZones,
+    arenaRadius,
+  };
+}
+
+/**
+ * Creates the glowing Golden Victory Exit Portal inside the boss cave.
+ */
+export function createVictoryExitPortal(phase = 1): THREE.Group {
+  const group = new THREE.Group();
+
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: '#ffea00',
+    emissive: '#ffb703',
+    emissiveIntensity: 0.9,
+    metalness: 0.8,
+    roughness: 0.2,
+  });
+
+  // Base platform
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.8, 0.4, 8), goldMat);
+  base.position.y = 0.2;
+  group.add(base);
+
+  // Twin Golden Pillars
+  const pillarGeo = new THREE.CylinderGeometry(0.3, 0.35, 3.8, 8);
+  const leftCol = new THREE.Mesh(pillarGeo, goldMat);
+  leftCol.position.set(-1.6, 2.1, 0);
+  group.add(leftCol);
+
+  const rightCol = new THREE.Mesh(pillarGeo, goldMat);
+  rightCol.position.set(1.6, 2.1, 0);
+  group.add(rightCol);
+
+  // Arch Header
+  const arch = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.5, 0.6), goldMat);
+  arch.position.set(0, 4.0, 0);
+  group.add(arch);
+
+  // Radiant Golden Light Beam
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: '#ffea00',
+    transparent: true,
+    opacity: 0.65,
+    side: THREE.DoubleSide,
+  });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 6.0, 16, 1, true), beamMat);
+  beam.position.set(0, 3.2, 0);
+  group.add(beam);
+
+  // Floating rotating sacred relic / key above the exit
+  const relic = createKeyModel(phase - 1);
+  relic.position.set(0, 4.6, 0);
+  relic.scale.set(1.4, 1.4, 1.4);
+  group.add(relic);
+
+  // Bright beacon point light
+  const light = new THREE.PointLight(0xffea00, 3.5, 14);
+  light.position.set(0, 2.5, 0);
+  group.add(light);
+
+  group.userData = { beam, relic, light };
+  return group;
+}
+

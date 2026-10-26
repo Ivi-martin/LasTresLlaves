@@ -5,12 +5,14 @@ interface PauseModalProps {
   onResume: () => void;
   onOpenSettings: () => void;
   onExitToMenu: () => void;
+  onOpenAdmin?: () => void;
 }
 
 export const PauseModal: React.FC<PauseModalProps> = ({
   onResume,
   onOpenSettings,
   onExitToMenu,
+  onOpenAdmin,
 }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
@@ -42,6 +44,19 @@ export const PauseModal: React.FC<PauseModalProps> = ({
           >
             ⚙️ AJUSTES Y RENDIMIENTO
           </button>
+
+          {onOpenAdmin && (
+            <button
+              onClick={() => {
+                sound.click();
+                onOpenAdmin();
+              }}
+              className="w-full py-2.5 bg-amber-950/70 hover:bg-amber-900/90 active:scale-95 text-amber-300 font-bold font-mono text-xs rounded-xl border border-amber-600/60 transition cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <span>🛠️</span>
+              <span>MODO ADMIN / DEV (1234)</span>
+            </button>
+          )}
 
           <button
             onClick={() => {
