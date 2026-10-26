@@ -1321,9 +1321,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         particles.update(dt);
 
         // Smooth camera follow with an action isometric angle (character fully visible)
-        cameraTarget.x = heroMesh.position.x;
-        cameraTarget.z = heroMesh.position.z + 12.5;
-        cameraTarget.y = 8.8;
+        if (inBossArena) {
+          // Inside the boss room: optimal high isometric perspective overlooking both Martín and the boss
+          cameraTarget.x = heroMesh.position.x * 0.45;
+          cameraTarget.z = Math.min(18.0, heroMesh.position.z + 12.0);
+          cameraTarget.y = 11.2;
+        } else {
+          cameraTarget.x = heroMesh.position.x;
+          cameraTarget.z = heroMesh.position.z + 12.5;
+          cameraTarget.y = 8.8;
+        }
 
         // Apply decaying camera shake
         if (cameraShake > 0) {
@@ -1336,7 +1343,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         camera.position.x = THREE.MathUtils.damp(camera.position.x, cameraTarget.x, 8, dt);
         camera.position.y = THREE.MathUtils.damp(camera.position.y, cameraTarget.y, 8, dt);
         camera.position.z = THREE.MathUtils.damp(camera.position.z, cameraTarget.z, 8, dt);
-        camera.lookAt(heroMesh.position.x, 1.1, heroMesh.position.z);
+
+        const lookAtX = inBossArena ? heroMesh.position.x * 0.45 : heroMesh.position.x;
+        const lookAtY = inBossArena ? 0.9 : 1.1;
+        const lookAtZ = inBossArena ? heroMesh.position.z * 0.65 - 1.5 : heroMesh.position.z;
+        camera.lookAt(lookAtX, lookAtY, lookAtZ);
 
         // Update compass angle in HUD
         setHudState((prev) => ({

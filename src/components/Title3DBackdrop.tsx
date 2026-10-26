@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { createKeyModel } from '../game3d/models';
+import { createKeyModel, createHeroModel } from '../game3d/models';
+import { DEFAULT_SKINS } from '../utils/storage';
 
 export const Title3DBackdrop: React.FC = () => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -13,8 +14,8 @@ export const Title3DBackdrop: React.FC = () => {
     scene.fog = new THREE.FogExp2(0x0e130f, 0.035);
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
-    camera.position.set(0, 3, 9);
-    camera.lookAt(0, 0.8, 0);
+    camera.position.set(0, 2.6, 8.5);
+    camera.lookAt(0, 0.9, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -33,6 +34,12 @@ export const Title3DBackdrop: React.FC = () => {
     fillLight.position.set(-4, 2, -2);
     scene.add(fillLight);
 
+    // Martín Hero Model on the pedestal
+    const heroMesh = createHeroModel(DEFAULT_SKINS[0], undefined, 'pistol');
+    heroMesh.position.set(0, 0, 0);
+    heroMesh.scale.set(1.05, 1.05, 1.05);
+    scene.add(heroMesh);
+
     // Group for the 3 orbiting keys
     const keysCenter = new THREE.Group();
     scene.add(keysCenter);
@@ -41,15 +48,15 @@ export const Title3DBackdrop: React.FC = () => {
     for (let i = 0; i < 3; i++) {
       const keyMesh = createKeyModel(i);
       const angle = (i * Math.PI * 2) / 3;
-      const radius = 2.2;
-      keyMesh.position.set(Math.cos(angle) * radius, 0.8, Math.sin(angle) * radius);
+      const radius = 2.4;
+      keyMesh.position.set(Math.cos(angle) * radius, 0.9, Math.sin(angle) * radius);
       keysCenter.add(keyMesh);
       keyModels.push(keyMesh);
     }
 
     // Pedestal base
     const pedestal = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.6, 2.0, 0.4, 8),
+      new THREE.CylinderGeometry(1.8, 2.2, 0.4, 8),
       new THREE.MeshStandardMaterial({ color: '#242b26', roughness: 0.8, metalness: 0.2 })
     );
     pedestal.position.y = -0.2;
@@ -85,8 +92,12 @@ export const Title3DBackdrop: React.FC = () => {
       keysCenter.rotation.y = clock * 0.4;
       keyModels.forEach((km, idx) => {
         km.rotation.y = clock * 1.5 + idx;
-        km.position.y = 0.8 + Math.sin(clock * 2 + idx) * 0.15;
+        km.position.y = 0.9 + Math.sin(clock * 2 + idx) * 0.15;
       });
+
+      // Hero idle breathing & subtle rotation
+      heroMesh.rotation.y = Math.sin(clock * 0.6) * 0.18;
+      heroMesh.position.y = Math.sin(clock * 1.8) * 0.03;
 
       // Float particles
       const posAttr = pGeo.attributes.position;

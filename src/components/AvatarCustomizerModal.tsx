@@ -90,38 +90,60 @@ export const AvatarCustomizerModal: React.FC<AvatarCustomizerModalProps> = ({
       ctx.save();
       ctx.translate(120, spriteY);
 
-      // Boots
-      ctx.fillStyle = '#1b1c1e';
+      // Boots with laces and lug sole
+      ctx.fillStyle = '#1a1b1d';
       ctx.fillRect(-15, -16, 12, 18);
       ctx.fillRect(3, -16, 12, 18);
-      ctx.fillStyle = '#111213';
+      ctx.fillStyle = '#323438'; // Boot laces
+      ctx.fillRect(-13, -12, 8, 2);
+      ctx.fillRect(-13, -8, 8, 2);
+      ctx.fillRect(5, -12, 8, 2);
+      ctx.fillRect(5, -8, 8, 2);
+      ctx.fillStyle = '#0e0f11'; // Lug sole
       ctx.fillRect(-16, -2, 14, 4);
       ctx.fillRect(2, -2, 14, 4);
 
-      // Pants (Camo green)
-      ctx.fillStyle = '#55633e';
+      // Pants (Spanish digital camo olive)
+      ctx.fillStyle = '#576646';
       ctx.fillRect(-15, -34, 12, 20);
       ctx.fillRect(3, -34, 12, 20);
-      // Cargo pockets on pants
-      ctx.fillStyle = '#445133';
+      // Cargo pockets on pants with flaps
+      ctx.fillStyle = '#495734';
       ctx.fillRect(-17, -30, 4, 12);
       ctx.fillRect(13, -30, 4, 12);
+      ctx.fillStyle = '#3b472e';
+      ctx.fillRect(-17, -30, 4, 3);
+      ctx.fillRect(13, -30, 4, 3);
 
-      // Torso / Camo Jacket
+      // Torso / Spanish Camo Jacket
       const skin = DEFAULT_SKINS.find((s) => s.id === currentEquipped.skinId) || DEFAULT_SKINS[0];
-      ctx.fillStyle = skin.primaryColor || '#55633e';
-      ctx.fillRect(-16, -64, 32, 32);
+      ctx.fillStyle = skin.primaryColor || '#576646';
+      ctx.fillRect(-16, -64, 32, 34);
 
-      // Cargo pockets on jacket
-      ctx.fillStyle = skin.secondaryColor || '#445133';
-      ctx.fillRect(-13, -60, 10, 10);
-      ctx.fillRect(3, -60, 10, 10);
-      ctx.fillRect(-13, -46, 10, 10);
-      ctx.fillRect(3, -46, 10, 10);
+      // 4 Military flap cargo pockets with buttons
+      ctx.fillStyle = skin.secondaryColor || '#495734';
+      ctx.fillRect(-13, -60, 10, 9);
+      ctx.fillRect(3, -60, 10, 9);
+      ctx.fillRect(-13, -47, 10, 9);
+      ctx.fillRect(3, -47, 10, 9);
+      // Pocket flaps & buttons
+      ctx.fillStyle = '#3b472e';
+      ctx.fillRect(-13, -61, 10, 3);
+      ctx.fillRect(3, -61, 10, 3);
+      ctx.fillRect(-13, -48, 10, 3);
+      ctx.fillRect(3, -48, 10, 3);
+      ctx.fillStyle = '#242b1a';
+      ctx.fillRect(-9, -59, 2, 2);
+      ctx.fillRect(7, -59, 2, 2);
+      ctx.fillRect(-9, -46, 2, 2);
+      ctx.fillRect(7, -46, 2, 2);
 
-      // Collar lapels
-      ctx.fillStyle = '#38432a';
+      // Inner crewneck olive undershirt & folded lapels
+      ctx.fillStyle = '#343f25';
       ctx.fillRect(-5, -64, 10, 6);
+      ctx.fillStyle = '#495734';
+      ctx.fillRect(-8, -64, 4, 7);
+      ctx.fillRect(4, -64, 4, 7);
 
       // Head & Peach Skin
       ctx.fillStyle = '#f5cbb0';
@@ -132,7 +154,7 @@ export const AvatarCustomizerModal: React.FC<AvatarCustomizerModalProps> = ({
       ctx.fillRect(-11, -84, 8, 8);
       ctx.fillRect(3, -84, 8, 8);
 
-      ctx.fillStyle = '#382115';
+      ctx.fillStyle = '#27170e';
       ctx.fillRect(-10, -84, 6, 7);
       ctx.fillRect(4, -84, 6, 7);
 
@@ -140,21 +162,28 @@ export const AvatarCustomizerModal: React.FC<AvatarCustomizerModalProps> = ({
       ctx.fillRect(-10, -84, 2.5, 2.5);
       ctx.fillRect(4, -84, 2.5, 2.5);
 
+      // Smile & Nose
+      ctx.fillStyle = '#e4b699';
+      ctx.fillRect(-1, -77, 2, 2);
+      ctx.fillStyle = '#7a3e32';
+      ctx.fillRect(-3, -73, 7, 2);
+      ctx.fillRect(3, -74, 2, 2);
+
       // Eyebrows
-      ctx.fillStyle = '#27170e';
+      ctx.fillStyle = '#2a1a11';
       ctx.fillRect(-11, -87, 8, 2);
       ctx.fillRect(3, -87, 8, 2);
 
       // Spiky Voxel Hair (Martín)
       const hat = DEFAULT_HATS.find((h) => h.id === currentEquipped.hatId);
       if (!hat || hat.drawType === 'none') {
-        ctx.fillStyle = '#463223';
+        ctx.fillStyle = '#382318';
         ctx.fillRect(-18, -102, 36, 14);
         ctx.fillRect(-8, -108, 18, 8);
-        ctx.fillStyle = '#5c412e';
-        ctx.fillRect(-14, -94, 8, 10);
-        ctx.fillRect(6, -94, 10, 10);
-        ctx.fillRect(-2, -106, 8, 6);
+        ctx.fillStyle = '#4c3322';
+        ctx.fillRect(-15, -94, 9, 11); // Center-left bang
+        ctx.fillRect(5, -93, 10, 9);  // Right bang
+        ctx.fillRect(-3, -106, 9, 6);
       } else {
         const headY = -82;
         if (hat.drawType === 'crown') {

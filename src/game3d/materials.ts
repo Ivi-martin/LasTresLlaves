@@ -149,29 +149,38 @@ export function getDigitalCamoTexture(size = 256): THREE.CanvasTexture {
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
 
+  // Spanish Army M09 Digital Woodland Camo palette matching 6ak9y.jpg
   const palette = [
-    '#55633e', // primary olive
-    '#3e4a2e', // dark moss
-    '#6c7752', // light khaki olive
-    '#2d3522', // deep forest
-    '#444f33', // mid army green
-    '#7f8c63', // sage highlight
+    '#576646', // primary olive green
+    '#687650', // mid army green
+    '#7e7856', // khaki tan
+    '#8d8764', // light khaki tan
+    '#3b472e', // dark moss / forest
+    '#2c251c', // deep earth brown / charcoal
+    '#493f2f', // warm field brown
+    '#8a956e', // sage highlight
   ];
 
-  const gridSize = 16;
+  const gridSize = 20;
   const tileSize = size / gridSize;
+
+  // Base fill
+  ctx.fillStyle = palette[0];
+  ctx.fillRect(0, 0, size, size);
 
   for (let y = 0; y < gridSize; y++) {
     for (let x = 0; x < gridSize; x++) {
-      // Pick pseudo-random cluster color
+      // Pick random color from authentic camo palette
       const color = palette[Math.floor(Math.random() * palette.length)];
       ctx.fillStyle = color;
       ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
 
-      // Micro-pixel details
-      if (Math.random() > 0.6) {
+      // Micro pixel cluster details (digital square blocks)
+      if (Math.random() > 0.45) {
         ctx.fillStyle = palette[Math.floor(Math.random() * palette.length)];
-        ctx.fillRect(x * tileSize + tileSize * 0.25, y * tileSize + tileSize * 0.25, tileSize * 0.5, tileSize * 0.5);
+        const subX = Math.random() > 0.5 ? 0 : tileSize * 0.5;
+        const subY = Math.random() > 0.5 ? 0 : tileSize * 0.5;
+        ctx.fillRect(x * tileSize + subX, y * tileSize + subY, tileSize * 0.5, tileSize * 0.5);
       }
     }
   }
@@ -180,6 +189,9 @@ export function getDigitalCamoTexture(size = 256): THREE.CanvasTexture {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestMipmapNearestFilter;
+  tex.generateMipmaps = true;
   textureCache[key] = tex;
   return tex;
 }
